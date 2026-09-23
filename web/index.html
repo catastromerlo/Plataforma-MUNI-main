@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es">
+<!--
+    index.html = SOLO el maquetado del visor (los botones, el modal, el panel).
+    Toda la lógica (mapa, ficha, plancheta, filtros) vive en js/app.js.
+    Los estilos, en css/app.css.
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catastro Digital - Villa de Merlo</title>
+    <meta name="description" content="Visor catastral de la Municipalidad de Villa de Merlo, San Luis.">
+    <link rel="icon" href="img/escudoMerlo.jpg">
+
+    <!-- ==================================================================
+         DEPENDENCIAS EXTERNAS
+         Todas por CDN, sin paso de build. El sistema tiene que poder
+         mantenerse sin un desarrollador dedicado.
+
+         Tailwind se carga en su version de desarrollo: genera el CSS en el
+         navegador. Es lo que impide activar un Content-Security-Policy
+         estricto (ver la nota en server.js). Compilarlo a un .css estatico
+         es una mejora pendiente.
+         ================================================================== -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- ==================================================================
+         ESTILOS Y LOGICA PROPIOS
+         El ?v= es control de version: al desplegar un cambio se sube el
+         numero para que ningun navegador siga usando la copia vieja.
+         ================================================================== -->
+    <link rel="stylesheet" href="css/app.css?v=20">
+</head>
+<body class="bg-slate-50 flex flex-col">
+
+    <!-- ==================================================================
+         CABECERA: escudo, titulo y buscador por padron
+         ================================================================== -->
+    <header class="h-16 bg-emerald-950 text-white flex items-center justify-between px-6 shadow-lg z-[2000] relative">   
+        <div class="flex items-center gap-4">
+            <button onclick="toggleLayers()" class="p-2 hover:bg-emerald-800 rounded-none transition-colors">
+                <span class="material-icons">layers</span>
+            </button>
+            <div class="bg-emerald-600 p-2 rounded-none">
+                <img src="img/escudoMerlo.jpg" alt="Escudo Villa de Merlo" class="w-8 h-8 object-contain" onerror="this.src='https://via.placeholder.com/32?text=VM'">
+            </div>
+            <div class="border-l border-emerald-800 pl-4">
+                <h1 class="text-sm font-black uppercase tracking-tight leading-none">Catastro Digital</h1>
+                <span class="text-[10px] text-emerald-400 uppercase font-bold tracking-widest">Villa de Merlo</span>
+            </div>
+        </div>
+        
+        <!-- Buscador de Padrón -->
+        <div class="flex items-center gap-3">
+            <input id="search-input" type="text" placeholder="Padrón o Nro Renta..." 
+                class="pl-4 pr-4 py-2 rounded-none bg-emerald-900 border border-emerald-800 text-sm focus:outline-none w-48 focus:ring-2 focus:ring-emerald-500 transition-all">
+            <button onclick="buscarPadron()" class="bg-emerald-600 hover:bg-emerald-500 px-5 py-2 rounded-none text-xs font-black uppercase transition-colors shadow-lg">Buscar</button>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        <!-- ==============================================================
+             PANEL LATERAL: capas del mapa y filtros
+             Se abre y cierra con el boton de capas de la cabecera.
+             ============================================================== -->
+        <aside id="layers-drawer" class="overflow-y-auto">
+            <div class="p-6 space-y-6 flex flex-col h-full">
+                <!-- Encabezado del Cajón de Capas -->
+                <div class="flex items-center justify-between border-b border-slate-200 pb-3 flex-shrink-0">
+                    <h2 class="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <span class="material-icons text-slate-400">layers</span>
+                        Capas Cartográficas
+                    </h2>
+                    <button onclick="toggleLayers()" class="text-slate-400 hover:text-slate-600 p-1 flex items-center justify-center transition-colors rounded-none" aria-label="Cerrar panel">
+                        <span class="material-icons text-lg block leading-none">close</span>
+                    </button>
+                </div>
+                
+                <!-- Contenedor del control de capas de Leaflet -->
+                <div id="layer-control-container" class="custom-layer-control flex-shrink-0"></div>
+
+                <!-- SISTEMA MODULAR DE FILTROS DESPLEGABLES -->
+                <div class="border-t border-slate-200 pt-4 flex-shrink-0">
+                    
+                <!-- ==============================================================
+                     BÚSQUEDA POR FILTROS COMBINADOS
+                     Antes había un panel por criterio y cada uno hacía su
+                     propia consulta, así que no se podían cruzar: para pedir
+                     "baldíos de más de 500 m² en el Centro" había que filtrar
+                     por uno, anotar, y comparar a mano.
+                     Ahora todos los criterios se envían juntos y se combinan
+                     con Y: los que se dejan vacíos, no filtran.
+                     ============================================================== -->
+                <div class="filter-group mb-3">
+                    <button onclick="toggleFilter('filter-panel-content', 'icon-filtros')" class="w-full flex items-center justify-between bg-slate-100 hover:bg-slate-200 px-3 py-2 border border-slate-200 transition-colors focus:outline-none">
+                        <div class="flex items-center gap-2">
+                            <span class="material-icons text-slate-500 text-lg">tune</span>
+                            <h2 class="text-[10px] font-black text-slate-600 uppercase tracking-widest">Buscar parcelas</h2>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span id="filtros-activos" class="hidden bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.5 leading-none">0</span>
+                            <span id="icon-filtros" class="material-icons text-slate-500 text-sm transition-transform duration-300">expand_more</span>
+                        </div>
+                    </button>
+
+                    <div id="filter-panel-content" class="hidden bg-slate-50 border border-t-0 border-slate-200 rounded-none shadow-sm">
+
+                        <!-- Superficie -->
+                        <div class="px-4 pt-4 pb-3">
+                            <label class="text-[8px] font-black text-slate-400 uppercase block mb-1.5">Superficie del terreno (m²)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" id="filtro-sup-min" placeholder="Desde" min="0"
+                                    class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                                <span class="text-slate-400 text-xs">—</span>
+                                <input type="number" id="filtro-sup-max" placeholder="Hasta" min="0"
+                                    class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                            </div>
+                        </div>
+
+                        <!-- Metros de frente -->
+                        <div class="px-4 pb-3">
+                            <label class="text-[8px] font-black text-slate-400 uppercase block mb-1.5">Metros de frente</label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" id="filtro-frente-min" placeholder="Desde" min="0"
+                                    class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                                <span class="text-slate-400 text-xs">—</span>
+                                <input type="number" id="filtro-frente-max" placeholder="Hasta" min="0"
+                                    class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                            </div>
+                        </div>
+
+                        <!-- Estado de la finca -->
+                        <div class="px-4 pb-3">
+                            <label class="text-[8px] font-black text-slate-400 uppercase block mb-1.5">Estado de la finca</label>
+                            <div class="flex gap-1">
+                                <label class="flex-1">
+                                    <input type="radio" name="filtro-edificacion" value="" class="sr-only peer" checked>
+                                    <span class="block text-center text-[9px] font-bold uppercase py-1.5 border border-slate-300 bg-white text-slate-500 cursor-pointer peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-colors">Todas</span>
+                                </label>
+                                <label class="flex-1">
+                                    <input type="radio" name="filtro-edificacion" value="EDIFICADO" class="sr-only peer">
+                                    <span class="block text-center text-[9px] font-bold uppercase py-1.5 border border-slate-300 bg-white text-slate-500 cursor-pointer peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-colors">Edificado</span>
+                                </label>
+                                <label class="flex-1">
+                                    <input type="radio" name="filtro-edificacion" value="BALDIO" class="sr-only peer">
+                                    <span class="block text-center text-[9px] font-bold uppercase py-1.5 border border-slate-300 bg-white text-slate-500 cursor-pointer peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-colors">Baldío</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Zonificación -->
+                        <div class="px-4 pb-3">
+                            <label class="text-[8px] font-black text-slate-400 uppercase block mb-1.5">Zonificación</label>
+                            <select id="filtro-zonificacion"
+                                class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+
+                        <!-- Barrio -->
+                        <div class="px-4 pb-3">
+                            <label class="text-[8px] font-black text-slate-400 uppercase block mb-1.5">Barrio</label>
+                            <select id="filtro-barrio"
+                                class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
+
+                        <div class="flex gap-2 px-4 pb-4 pt-1 border-t border-slate-200">
+                            <button onclick="aplicarFiltros()"
+                                class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors shadow-lg">
+                                Buscar
+                            </button>
+                            <button onclick="limpiarFiltros()"
+                                class="bg-slate-300 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors">
+                                Limpiar
+                            </button>
+                        </div>
+
+                        <div id="filtro-resumen" class="hidden text-[9px] font-bold text-slate-500 uppercase text-center px-4 pb-4"></div>
+
+                        <!-- Explica por que el mapa puede mostrar menos parcelas
+                             que la lista: tope de resultados alcanzado, o
+                             parcelas de la base que no tienen poligono dibujado
+                             en el plano. Lo llena mostrarAvisosDelFiltro(). -->
+                        <div id="filtro-avisos" class="hidden px-4 pb-4 space-y-2"></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ==============================================================
+             MAPA
+             #map lo toma Leaflet. Los botones de tipo de mapa y el
+             indicador de carga van encima, posicionados en absoluto.
+             ============================================================== -->
+        <main class="flex-1 relative w-full">
+            <div id="loader" class="loading-overlay" style="display:none">
+                <div class="animate-spin rounded-full h-10 w-10 border-4 border-emerald-600 border-t-transparent mb-2"></div>
+                <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Procesando Operación...</p>
+            </div>
+            
+            <div class="map-type-control">
+                <div class="flex flex-col items-center gap-1">
+                    <div id="btn-osm" class="map-type-btn active cursor-pointer" onclick="switchBaseLayer('osm')">
+                        <img src="img/Predeterminado.jpg" class="w-full h-full object-cover">
+                    </div>
+                    <span class="text-[10px] font-bold uppercase">Calle</span>
+                </div>
+                <div class="flex flex-col items-center gap-1">
+                    <div id="btn-sat" class="map-type-btn cursor-pointer" onclick="switchBaseLayer('sat')">
+                        <img src="img/Satelital.jpg" class="w-full h-full object-cover">
+                    </div>
+                    <span class="text-[10px] font-bold uppercase">Satélite</span>
+                </div>
+                <div class="flex flex-col items-center gap-1">
+                    <div id="btn-topo" class="map-type-btn cursor-pointer" onclick="switchBaseLayer('topo')">
+                        <img src="img/Topo.jpg" class="w-full h-full object-cover">
+                    </div>
+                    <span class="text-[10px] font-bold uppercase">Topografía</span>
+                </div>
+            </div>
+
+            <div id="map"></div>
+            
+            <!-- __VERSION__ lo reemplaza el servidor al entregar esta página.
+                 Está a la vista para poder saber, de un vistazo, qué versión
+                 del programa está corriendo esta computadora: sin eso, una
+                 instalación vieja parece actualizada y los problemas ya
+                 corregidos parecen seguir sin solución. -->
+            <div class="absolute bottom-4 right-12 z-[1000] bg-white/90 backdrop-blur-sm p-2 rounded-none border border-slate-200 text-[10px] font-mono text-slate-600 shadow-sm">
+                SISTEMA: POSGAR 98 / ARGENTINA ZONA 3 (MERLO) &nbsp;·&nbsp; VERSIÓN <strong>__VERSION__</strong>
+            </div>
+        </main>
+    </div>
+
+    <!-- ==================================================================
+         MODALES
+         Los tres van al final del body y se muestran sobre el mapa.
+         El atributo data-html2canvas-ignore evita que aparezcan en la
+         captura del mapa que se usa para la plancheta.
+         ------------------------------------------------------------------
+         1. Ficha de parcela: se abre al hacer clic o al buscar un padron.
+            Su contenido lo genera showModalData() en app.js.
+         ================================================================== -->
+    <div id="parcel-modal" data-html2canvas-ignore="true" class="fixed inset-0 z-[4000] hidden items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 transition-opacity">
+        <div class="modal-dialog modal-dialog-centered w-full max-w-2xl my-auto">
+            <div class="modal-content bg-white rounded-none shadow-2xl flex flex-col max-h-[85vh] relative overflow-hidden border border-slate-200">
+                
+                <div class="modal-header bg-emerald-900 p-5 text-white relative flex-shrink-0 border-b border-emerald-950">
+                    <div class="flex items-center justify-between border-b border-emerald-700/60 pb-3 mb-3">
+                        <h1 class="modal-title text-xl font-bold tracking-wide" id="exampleModalLabel">Información Parcelaria</h1>
+                        <button type="button" onclick="closeModal()" class="btn-close p-1.5 bg-emerald-800/60 rounded-none text-emerald-100 hover:text-white hover:bg-emerald-950 transition-colors z-10" aria-label="Close">
+                            <span class="material-icons text-lg leading-none block">close</span>
+                        </button>
+                    </div>
+                    
+                    <div class="flex flex-col items-center text-center">
+                        <span class="text-[9px] font-black text-emerald-300 uppercase tracking-widest block mb-0.5">Padrón / Nro Renta</span>
+                        <h3 id="modal-title" class="text-2xl font-black tracking-tighter">S/P</h3>
+                        
+                        <div id="modal-geo-info" class="flex flex-wrap justify-center gap-2 mt-3 text-[10px] tracking-wider">
+                            <!-- Inyectado dinámicamente -->
+                        </div>
+                    </div>
+                    <span class="material-icons absolute -bottom-2 -right-2 text-6xl opacity-10 pointer-events-none">map</span>
+                </div>
+
+                <div id="modal-content" class="modal-body p-5 overflow-y-auto flex-1 bg-slate-50 modal-scroll space-y-4 text-sm">         
+                    <!-- Inyectado dinámicamente -->
+                </div> 
+
+                <div class="modal-footer p-4 bg-white border-t border-slate-200 flex-shrink-0 flex flex-wrap justify-end gap-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                    <button onclick="imprimirLibreDeuda()" class="print-btn-faltas px-6 py-3 text-xs w-auto">
+                        <span class="material-icons text-sm">gavel</span>
+                        Libre Deuda de Faltas
+                    </button>
+                    <button onclick="imprimirFicha()" class="print-btn px-6 py-3 text-xs w-auto">
+                        <span class="material-icons text-sm">picture_as_pdf</span>
+                        Imprimir Plancheta Catastral
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Propiedad horizontal: cuando una parcela tiene varias unidades,
+            deja elegir cual consultar antes de abrir la ficha. -->
+    <div id="ph-modal" data-html2canvas-ignore="true" class="fixed inset-0 z-[4500] hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-opacity">
+        <div class="bg-white rounded-none shadow-2xl flex flex-col w-full max-w-lg border border-slate-200">
+            <div class="bg-emerald-800 p-4 text-white flex justify-between items-center border-b border-emerald-900">
+                <h2 class="text-base font-black uppercase tracking-widest flex items-center gap-2">
+                    <span class="material-icons">apartment</span> Selección de Unidad (PH)
+                </h2>
+                <button type="button" onclick="closePhModal()" class="text-emerald-100 hover:text-white transition-colors bg-emerald-900/50 p-1 rounded-none flex items-center justify-center">
+                    <span class="material-icons leading-none block">close</span>
+                </button>
+            </div>
+            <div class="p-4 bg-slate-100 border-b border-slate-200">
+                <p class="text-[11px] text-slate-600 font-medium">Esta parcela está sometida al régimen de <strong>Propiedad Horizontal</strong>. Seleccione el Padrón (Unidad Funcional) que desea consultar a continuación:</p>
+            </div>
+            <div class="p-5 max-h-[50vh] overflow-y-auto modal-scroll bg-slate-50" id="ph-list-container">
+                <!-- Lista de padrones inyectada dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Resultados de filtros: lista en tabla lo que devuelven las
+            busquedas por superficie o por estado de edificacion. -->
+    <div id="filter-table-modal" data-html2canvas-ignore="true" class="fixed inset-0 z-[4000] hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-opacity">
+        <div class="modal-dialog modal-dialog-centered w-full max-w-3xl my-auto">
+            <div class="modal-content bg-white rounded-none shadow-2xl flex flex-col max-h-[85vh] relative overflow-hidden border border-slate-200">
+                <!-- Modal Header -->
+                <div class="modal-header bg-emerald-800 p-4 text-white relative flex-shrink-0 flex justify-between items-center border-b border-emerald-900">
+                    <h2 class="text-lg font-black tracking-widest uppercase flex items-center gap-2" id="filter-modal-title">
+                        <span class="material-icons">table_chart</span> Resultados del Filtro
+                    </h2>
+                    <button type="button" onclick="closeFilterModal()" class="btn-close p-1.5 bg-emerald-900/50 rounded-none text-emerald-100 hover:text-white hover:bg-emerald-950 transition-colors z-10" aria-label="Close">
+                        <span class="material-icons text-lg leading-none block">close</span>
+                    </button>
+                </div>
+                <!-- Sub Header Info -->
+                <div class="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center shadow-inner">
+                    <span class="text-xs font-black text-slate-600 uppercase tracking-wider" id="filter-modal-count">0 Registros</span>
+                </div>
+                <!-- Avisos: explican por que el mapa puede pintar menos
+                     parcelas que las que muestra esta lista. Van aca, y no solo
+                     en el panel lateral, porque el panel se colapsa y este es
+                     el momento en que el operador esta mirando los resultados y
+                     por apretar "Pintar Parcelas en Mapa". -->
+                <div id="filtro-avisos-modal" class="hidden px-4 py-3 space-y-2 bg-slate-50 border-b border-slate-200"></div>
+                <!-- Modal Body (Tabla) -->
+                <div class="modal-body overflow-y-auto flex-1 bg-white p-0 modal-scroll relative">
+                    <table class="w-full text-left text-xs text-slate-700">
+                        <thead class="bg-slate-50 sticky top-0 border-b border-slate-200 z-10 shadow-sm">
+                            <tr>
+                                <th class="px-5 py-3 font-bold uppercase tracking-widest text-slate-500">Padrón / Nro Renta</th>
+                                <th class="px-5 py-3 font-bold uppercase tracking-widest text-slate-500">Nomenclatura</th>
+                                <th class="px-5 py-3 font-bold uppercase tracking-widest text-emerald-700" id="filter-modal-value-col">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="filter-modal-tbody" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div> 
+                <!-- Modal Footer -->
+                <div class="modal-footer p-4 bg-slate-50 border-t border-slate-200 flex-shrink-0 flex justify-between shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                    <button onclick="closeFilterModal()" class="px-6 py-2 bg-slate-300 hover:bg-slate-400 text-slate-700 text-[11px] font-black uppercase tracking-wider rounded-none transition-colors">
+                        Cancelar
+                    </button>
+                    <button id="btn-paint-map" class="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-wider rounded-none transition-colors shadow-lg flex items-center gap-2">
+                        <span class="material-icons text-sm">format_paint</span> Pintar Parcelas en Mapa
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Logica del visor: mapa, ficha, plancheta y filtros -->
+    <!-- config.js va primero: define a qué servidor le pide los datos app.js -->
+    <script src="js/config.js?v=20"></script>
+    <script src="js/app.js?v=20"></script>
+</body>
+</html>

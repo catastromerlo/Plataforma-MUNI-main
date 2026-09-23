@@ -1,0 +1,200 @@
+◇ injected env (10) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌘ override existing { override: true }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌘ enable debugging { debug: true }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌘ enable debugging { debug: true }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+🔎 Filtro: 59 parcelas en 1159 ms
+🔎 Filtro: 300 parcelas en 1344 ms
+🔎 Filtro: 692 parcelas en 1243 ms
+🔎 Filtro: 693 parcelas en 1002 ms
+🔎 Filtro: 138 parcelas en 572 ms
+🔎 Filtro: 104 parcelas en 354 ms
+🔎 Filtro: 104 parcelas en 247 ms
+🔎 Filtro: 104 parcelas en 251 ms
+🔎 Filtro: 922 parcelas en 1429 ms
+🔎 Filtro: 718 parcelas en 1366 ms
+🔎 Filtro: 195 parcelas en 479 ms
+🔎 Filtro: 196 parcelas en 322 ms
+🔎 Filtro: 196 parcelas en 315 ms
+🔎 Filtro: 104 parcelas en 346 ms
+🔎 Filtro: 104 parcelas en 251 ms
+🔎 Filtro: 138 parcelas en 418 ms
+🔎 Filtro: 718 parcelas en 1171 ms
+
+🛑 Señal SIGINT recibida. Cerrando servidor...
+✅ Pool de SQL Server cerrado correctamente.
+◇ injected env (10) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+
+🛑 Señal SIGINT recibida. Cerrando servidor...
+✅ Pool de SQL Server cerrado correctamente.
+◇ injected env (10) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+🔎 Filtro: 15 parcelas en 361 ms
+🔎 Filtro: 246 parcelas en 679 ms
+🔎 Filtro: 109 parcelas en 489 ms
+🔎 Filtro: 729 parcelas en 1255 ms
+🔎 Filtro: 75 parcelas en 639 ms
+🔎 Filtro: 76 parcelas en 473 ms
+🔎 Filtro: 77 parcelas en 562 ms
+🔎 Filtro: 77 parcelas en 496 ms
+🔎 Filtro: 77 parcelas en 481 ms
+🔎 Filtro: 78 parcelas en 576 ms
+🔎 Filtro: 80 parcelas en 566 ms
+🔎 Filtro: 82 parcelas en 590 ms
+🔎 Filtro: 83 parcelas en 501 ms
+🔎 Filtro: 84 parcelas en 482 ms
+◇ injected env (10) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+🔎 Filtro: 114 parcelas en 635 ms
+🔎 Filtro: 120 parcelas en 458 ms
+🔎 Filtro: 116 parcelas en 298 ms
+🔎 Filtro: 7 parcelas en 182 ms
+🔎 Filtro: 120 parcelas en 333 ms
+🔎 Filtro: 84 parcelas en 656 ms
+
+🛑 Señal SIGINT recibida. Cerrando servidor...
+✅ Pool de SQL Server cerrado correctamente.
+◇ injected env (10) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    
+◇ injected env (10) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+✅ Conectado a SQL Server (pool inicializado).
+
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION 2026.09.15.1
+    ====================================================
+    > Local:    http://localhost:8002
+    > DB:       conectada
+    ====================================================
+    

@@ -1,0 +1,1183 @@
+// ============================================================================
+// SERVIDOR GIS MUNICIPAL - VILLA DE MERLO
+// ----------------------------------------------------------------------------
+// API de consulta catastral. El frontend vive en la carpeta web/.
+//
+// LA REGLA QUE ORDENA TODO
+//   La geometría sale de los archivos GeoJSON. Todo lo demás sale de la base.
+//
+//   El GeoJSON de parcelas trae por polígono únicamente la forma, el
+//   NRO_RENTA y la NOMENCLA. Ni superficie, ni titular, ni zonificación, ni
+//   estado de edificación: eso vive en la base municipal y se consulta acá, en
+//   vivo. Por eso el mapa se ve aunque no haya conexión, y las fichas no.
+//
+//   Consecuencia práctica: los filtros por superficie, frente, estado, zona y
+//   barrio dependen ENTERAMENTE de esta API. El visor no puede calcular
+//   ninguno de esos valores por su cuenta.
+//
+// SIN CONEXIÓN
+//   Cada endpoint decide solo: si hay pool, consulta la base; si no lo hay y
+//   MODO_DEMO está activo, responde con datos inventados y lo avisa con la
+//   cabecera X-Datos-De-Prueba. No hay que tocar código para pasar de un modo
+//   al otro: en cuanto el servidor pueda conectarse, usa la base.
+//
+//   Ver docs/conexion-con-la-base.md para el detalle de qué campo sale de qué
+//   vista y qué falta confirmar contra la base real.
+//
+// LO QUE ATIENDE ESTE SERVIDOR (buscá "app.get" para saltar a cada uno)
+//   /                 sirve el visor (la web de la carpeta web/)
+//   /version /health  para chequear qué versión corre y si la base responde
+//   /api/catastro     la ficha de UNA parcela: dueño, superficie, deuda, etc.
+//   /api/filtrar      búsqueda por superficie / zona / barrio (los filtros)
+//   /api/opciones     las listas de zonas y barrios que existen en la base
+//   /api/superficie   /api/edificacion   búsquedas sueltas más viejas
+// ============================================================================
+
+require('dotenv').config(); // Carga variables desde .env (no versionado en git)
+
+const express = require('express');
+const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const path = require('path');
+const sql = require('mssql');
+
+const app = express();
+const PORT = process.env.PORT || 8000;
+
+// ============================================================================
+// VERSION DEL PROGRAMA
+// ----------------------------------------------------------------------------
+// Se muestra al arrancar, en el pie del visor y en /version.
+//
+// Existe porque sin esto no hay forma de saber qué versión está corriendo una
+// computadora. Si alguien descomprime la actualización en otra carpeta, o
+// sigue ejecutando la instalación vieja, el visor abre igual y parece estar
+// actualizado: el síntoma es que "no anda lo que ya arreglamos". Con la
+// versión a la vista, eso se responde mirando la pantalla en vez de deducirlo.
+// ============================================================================
+const VERSION = (() => {
+    try {
+        return require('fs')
+            .readFileSync(path.join(__dirname, '..', 'VERSION.txt'), 'utf8')
+            .trim() || 'desconocida';
+    } catch (err) {
+        return 'desconocida';
+    }
+})();
+
+// ============================================================================
+// 1. CONFIGURACIÓN DE SQL SERVER (ahora vía variables de entorno)
+// ============================================================================
+// IMPORTANTE: crear un archivo .env (ver .env.example) con estos valores
+// y agregar .env al .gitignore. Nunca commitear credenciales reales.
+/**
+ * Nombre de la base, o vacio para usar la predeterminada del usuario.
+ *
+ * En SQL Server Management Studio este campo se puede dejar en
+ * "<predeterminado>", que significa "la base por defecto de este login". Muchos
+ * se conectan asi y nunca escriben el nombre.
+ *
+ * Si se manda un nombre de base que no existe, SQL Server NO dice que la base
+ * no existe: responde "Login failed for user", el mismo error que da una
+ * contrasena equivocada. Es de los errores mas dificiles de diagnosticar.
+ *
+ * Las consultas del visor nombran la base completa (PROGRAM.dbo.VI_...), asi
+ * que funcionan igual sin especificarla en la conexion.
+ */
+const nombreBase = String(process.env.DB_DATABASE || '').trim();
+const baseEsPredeterminada = nombreBase === '' ||
+                             nombreBase.toLowerCase() === '<predeterminado>' ||
+                             nombreBase.toLowerCase() === 'predeterminado';
+
+const dbConfig = {
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    server: process.env.DB_SERVER,
+    ...(baseEsPredeterminada ? {} : { database: nombreBase }),
+    requestTimeout: 120000,
+    options: {
+        // TODO (roadmap seguridad): habilitar cifrado en tránsito cuando el
+        // SQL Server municipal soporte TLS. Hoy se mantiene igual al original
+        // para no romper la conexión existente en producción.
+        encrypt: process.env.DB_ENCRYPT === 'true',
+        trustServerCertificate: process.env.DB_TRUST_CERT !== 'false'
+    },
+    pool: {
+        max: 20,
+        min: 0,
+        idleTimeoutMillis: 30000
+    }
+};
+
+// Límite duro de filas devueltas por los endpoints de listado (superficie,
+// edificación). Protege contra scraping/descarga masiva del padrón completo
+// vía un rango absurdamente amplio. Configurable por entorno.
+const MAX_ROWS = parseInt(process.env.MAX_ROWS, 10) || 5000;
+
+// ============================================================================
+// MODO DE DATOS DE PRUEBA
+// ----------------------------------------------------------------------------
+// La base municipal solo es alcanzable desde la red de la Municipalidad. Fuera
+// de ahí, /api/catastro devuelve 503 y la ficha sale con todos los campos
+// vacíos, así que no se puede revisar el diseño ni probar los casos con varios
+// titulares.
+//
+// Con MODO_DEMO=true, y SOLO cuando no hay base disponible, el endpoint
+// responde con parcelas inventadas. Los nombres son deliberadamente falsos
+// ("PRUEBA", "DEMO") para que nadie los confunda con datos reales, y la
+// respuesta incluye la marca _DEMO para que el frontend lo pueda avisar en
+// pantalla.
+//
+// Nunca se activa en producción: si hay conexión a SQL Server, este modo se
+// ignora por completo.
+// ============================================================================
+const MODO_DEMO = process.env.MODO_DEMO === 'true';
+
+// ============================================================================
+// RESPALDO: TITULAR POR PADRÓN (para sub-unidades de PH sin nomenclatura)
+// ----------------------------------------------------------------------------
+// El titular se busca por NOMENCLATURA. Funciona para casi todo, pero las
+// sub-unidades de propiedad horizontal de la 20 en adelante no tienen
+// nomenclatura propia en el plano (solo hay columnas hasta la 19), así que su
+// ficha queda sin titular. Son 34 unidades en unas pocas PH grandes.
+//
+// Estas unidades SÍ tienen su NRO_RENTA. Si la vista VI_CPAR_PROPIETARIOS
+// tuviera una columna NRO_RENTA, se podría traer el titular por ahí y el
+// problema desaparecería. HOY NO ESTÁ CONFIRMADO que esa columna exista (ver
+// herramientas/consultas-pendientes.sql).
+//
+// Por eso este respaldo viene APAGADO. Cuando en la Muni se confirme el nombre
+// de la columna, se activa poniendo PH_TITULAR_POR_PADRON=true en el .env.
+// Aun activado es conservador: solo consulta por padrón cuando la búsqueda por
+// nomenclatura no trajo NINGÚN titular, así que nunca pisa un dato correcto; y
+// va dentro de try/catch, así que si la columna no existiera, no rompe nada.
+// ============================================================================
+const PH_TITULAR_POR_PADRON = process.env.PH_TITULAR_POR_PADRON === 'true';
+
+/**
+ * Padrones reales tomados del GeoJSON, para el modo de prueba.
+ *
+ * Los filtros no sirven de nada si devuelven padrones inventados: el mapa no
+ * los encontraría y no se pintaría ninguna parcela. Así que en modo de prueba
+ * se leen los padrones que EXISTEN en el archivo de parcelas y se les inventan
+ * los atributos (superficie, frente, zonificación). El resultado se puede
+ * pintar en el mapa igual que uno real, que es lo que hace útil la prueba.
+ *
+ * Se lee una sola vez y solo si hace falta.
+ */
+let padronesDePrueba = null;
+
+function cargarPadronesDePrueba() {
+    if (padronesDePrueba !== null) return padronesDePrueba;
+
+    try {
+        const fs = require('fs');
+        const ruta = path.join(__dirname, '..', 'web', 'datos', 'Merlo2026Parcelas-V1.json');
+        const datos = JSON.parse(fs.readFileSync(ruta, 'utf8'));
+
+        padronesDePrueba = datos.features
+            .map((f) => ({
+                PADRON: String((f.properties || {}).NRO_RENTA || '').trim(),
+                NOMENCLA: String((f.properties || {}).NOMENCLA || '').trim()
+            }))
+            .filter((p) => p.PADRON);
+
+        console.log(`🧪 Modo de prueba: ${padronesDePrueba.length} padrones cargados del GeoJSON.`);
+    } catch (err) {
+        console.warn('⚠️  Modo de prueba: no se pudo leer el archivo de parcelas:', err.message);
+        padronesDePrueba = [];
+    }
+    return padronesDePrueba;
+}
+
+/**
+ * Atributos ficticios pero DETERMINÍSTICOS: el mismo padrón devuelve siempre
+ * los mismos valores. Si fueran aleatorios, cada consulta daría un resultado
+ * distinto y no se podría probar nada.
+ */
+function atributosDePrueba(padron) {
+    const n = parseInt(String(padron).replace(/\D/g, '').slice(-6), 10) || 0;
+    const zonas = ['RESIDENCIAL R1', 'RESIDENCIAL R2', 'COMERCIAL C1', 'INDUSTRIAL', 'RURAL'];
+    const barrios = ['CENTRO DEMO', 'BARRIO DEMO', 'BALNEARIO DEMO', 'RINCON DEMO'];
+
+    return {
+        SUP_TER: 200 + (n % 1800),          // entre 200 y 2000 m²
+        MET_FRENTE: 8 + (n % 22),           // entre 8 y 30 m
+        BAL_EDIF: (n % 3 === 0) ? 'BALDIO' : 'EDIFICADO',
+        ZONIFICACION: zonas[n % zonas.length],
+        BARRIO: barrios[n % barrios.length]
+    };
+}
+
+/** Aplica los criterios sobre los datos de prueba, igual que lo haría el SQL. */
+function filtrarDePrueba(criterios) {
+    const contiene = (valor, buscado) =>
+        !buscado || String(valor || '').toUpperCase().includes(String(buscado).toUpperCase());
+
+    const vistos = new Set();
+
+    return cargarPadronesDePrueba()
+        .filter((p) => {
+            // Equivale al SELECT DISTINCT de la consulta real: el archivo de
+            // parcelas tiene padrones repetidos y sin esto saldrían duplicados.
+            if (vistos.has(p.PADRON)) return false;
+            vistos.add(p.PADRON);
+            return true;
+        })
+        .map((p) => ({ ...p, ...atributosDePrueba(p.PADRON) }))
+        .filter((p) => {
+            if (!isNaN(criterios.supMin) && p.SUP_TER < criterios.supMin) return false;
+            if (!isNaN(criterios.supMax) && p.SUP_TER > criterios.supMax) return false;
+            if (!isNaN(criterios.frenteMin) && p.MET_FRENTE < criterios.frenteMin) return false;
+            if (!isNaN(criterios.frenteMax) && p.MET_FRENTE > criterios.frenteMax) return false;
+            if (!contiene(p.BAL_EDIF, criterios.edificacion)) return false;
+            if (!contiene(p.ZONIFICACION, criterios.zonificacion)) return false;
+            if (!contiene(p.BARRIO, criterios.barrio)) return false;
+            return true;
+        })
+        .slice(0, MAX_ROWS);
+}
+
+function fichaDePrueba(padron, nomenclatura) {
+    // Un titular, dos titulares y muchos: los tres casos que hay que poder
+    // revisar. Según el último dígito del padrón se devuelve uno u otro.
+    const digito = parseInt(String(padron).replace(/\D/g, '').slice(-1), 10) || 0;
+    const cuantos = digito < 4 ? 1 : (digito < 7 ? 3 : 12);
+
+    const apellidos = ['GONZALEZ PRUEBA', 'RODRIGUEZ DEMO', 'FERNANDEZ PRUEBA', 'LOPEZ DEMO',
+                       'MARTINEZ PRUEBA', 'GOMEZ DEMO', 'DIAZ PRUEBA', 'PEREZ DEMO',
+                       'SANCHEZ PRUEBA', 'ROMERO DEMO', 'ALVAREZ PRUEBA', 'TORRES DEMO'];
+    const nombres = ['MARIA LUCIA', 'JUAN CARLOS', 'ANA BEATRIZ', 'JOSE LUIS', 'ROSA ELENA',
+                     'CARLOS ALBERTO', 'SILVIA NOEMI', 'JORGE OMAR', 'LAURA INES',
+                     'RICARDO DANIEL', 'MONICA SUSANA', 'PABLO ANDRES'];
+
+    const titulares = [];
+    for (let i = 0; i < cuantos; i++) {
+        titulares.push({
+            APELLIDO: apellidos[i % apellidos.length],
+            NOMBRE: nombres[i % nombres.length],
+            TIPO_DOCUMENTO: 'DNI',
+            DOCUMENTO: String(10000000 + (i * 1234567) % 40000000),
+            CALLE: 'CALLE DE PRUEBA',
+            NUMERACION: String(100 + i * 7),
+            PISO: cuantos > 6 ? String((i % 4) + 1) : '',
+            DEPARTAMENTO: cuantos > 6 ? 'ABCD'[i % 4] : '',
+            BARRIO: 'BARRIO DEMO',
+            CODIGO_POS: '5881',
+            LOCALIDAD: 'VILLA DE MERLO',
+            PROVINCIA: 'SAN LUIS'
+        });
+    }
+
+    const principal = titulares[0];
+
+    return {
+        _DEMO: true,
+        ...principal,
+        NOMENCLA: nomenclatura || '0000000000000000000000',
+        NRO_RENTA: padron,
+        ACTIVO: '1',
+        CALLE1: 'AV. DEL SOL (DEMO)',
+        NRO: '1234',
+        BARRIO1: 'CENTRO DEMO',
+        ESQ_MED: 'MEDIAL',
+        SUP_TER: 456.78,
+        MET_FRENTE: 12.5,
+        DESIG_OFI: 'LOTE 7 MANZANA B (DATO DE PRUEBA)',
+        BAL_EDIF: 'EDIFICADO',
+        CUENTA: '900' + String(padron).replace(/\D/g, '').slice(-5),
+        CONCEPTO: 'RESIDENCIAL R2',
+        ZONIFICACION: 'RESIDENCIAL R2',
+        UNIDADES_LOCATIVAS: cuantos > 6 ? cuantos : 1,
+        PORCENTAJE_COPROPIEDAD: cuantos > 6 ? Number((100 / cuantos).toFixed(2)) : null,
+        TITULARES: titulares,
+        CANTIDAD_TITULARES: titulares.length
+    };
+}
+
+// ============================================================================
+// 2. POOL DE CONEXIÓN ÚNICO (fix del anti-patrón original)
+// ----------------------------------------------------------------------------
+// Antes: cada endpoint llamaba `await sql.connect(dbConfig)` en cada request.
+// Ahora: se crea UN SOLO pool al arrancar el servidor y se reutiliza en todas
+// las queries. Esto reduce latencia (no hay handshake por request) y permite
+// centralizar el manejo de errores de conexión.
+// ============================================================================
+let pool = null;
+
+/**
+ * Avisa si falta configuración antes de intentar conectar.
+ *
+ * Sin esto, un .env incompleto produce un error de driver críptico
+ * ("Login failed", "getaddrinfo ENOTFOUND undefined") que hace perder tiempo
+ * buscando el problema en la red o en el SQL Server, cuando en realidad falta
+ * una línea en un archivo. El servidor arranca igual en modo degradado.
+ */
+function revisarConfiguracion() {
+    // DB_DATABASE no esta: es opcional, igual que en SSMS (ver nombreBase).
+    const requeridas = ['DB_USER', 'DB_PASSWORD', 'DB_SERVER'];
+    const faltantes = requeridas.filter((v) => !process.env[v]);
+
+    if (faltantes.length > 0) {
+        console.warn('⚠️  Faltan datos en el archivo .env:', faltantes.join(', '));
+        console.warn('    Copiar .env.example como .env y completarlo.');
+        console.warn('    El visor va a arrancar sin datos de la base municipal.');
+        return false;
+    }
+
+    // La plantilla trae "completar" como marcador. Si sigue ahí, nadie cargó
+    // los datos. Sin este control el servidor intenta conectarse a un equipo
+    // llamado literalmente "completar" y el error que sale ("getaddrinfo
+    // ENOTFOUND completar") no le dice a nadie cuál fue el problema real.
+    const sinCompletar = requeridas.filter(
+        (v) => String(process.env[v] || '').trim().toLowerCase() === 'completar'
+    );
+    if (sinCompletar.length > 0) {
+        console.warn('⚠️  FALTA COMPLETAR LA CONFIGURACION DE LA BASE DE DATOS');
+        console.warn('    Sigue sin cargar:', sinCompletar.join(', '));
+        console.warn('    Editar servidor/.env y reemplazar la palabra "completar"');
+        console.warn('    por los datos reales de la base municipal.');
+        console.warn('    El visor va a abrir, pero las fichas van a salir sin datos.');
+        return false;
+    }
+
+    return true;
+}
+
+async function initDb() {
+    if (!revisarConfiguracion()) {
+        pool = null;
+        return;
+    }
+
+    try {
+        pool = new sql.ConnectionPool(dbConfig);
+
+        // Si el pool pierde la conexión en caliente (ej: reinicio del SQL
+        // Server), lo logueamos en vez de dejar que tumbe el proceso Node.
+        pool.on('error', (err) => {
+            console.error('❌ Error en el pool de conexión SQL Server:', err.message);
+        });
+
+        await pool.connect();
+        console.log('✅ Conectado a SQL Server (pool inicializado).');
+    } catch (err) {
+        // Decisión de diseño: si SQL Server no está disponible al arrancar,
+        // el visor NO se cae por completo. Los planos GeoJSON estáticos
+        // (Merlo2026Parcelas-V1.json, etc.) siguen sirviéndose igual, porque
+        // viven en el filesystem, no en la base de datos. Solo las consultas
+        // que dependen de SQL (ficha de parcela, filtros) devolverán 503.
+        console.error('⚠️  No se pudo conectar a SQL Server al iniciar:', err.message);
+        console.error('    El servidor seguirá funcionando en modo degradado (sin datos de SQL).');
+        pool = null;
+    }
+}
+
+// Helper usado por cada endpoint: devuelve el pool si está disponible,
+// o null si la base de datos no está accesible en este momento.
+function getPool() {
+    if (pool && pool.connected) return pool;
+    return null;
+}
+
+// ============================================================================
+// 3. MIDDLEWARES GLOBALES
+// ============================================================================
+app.use(compression());
+
+// ============================================================================
+// CORS - SOLO SI EL FRENTE SE PUBLICA EN OTRO DOMINIO (por ejemplo Vercel)
+// ----------------------------------------------------------------------------
+// POR DEFECTO NO SE ACTIVA, y eso es lo más seguro. Hoy la web y la API salen
+// del mismo server.js, así que comparten origen: el navegador no necesita
+// ningún permiso cruzado y no se manda ninguna cabecera de CORS.
+//
+// El escenario cruzado aparece solo si el frente se publica aparte (Vercel)
+// apuntando a esta API por un túnel. Ahí SÍ hace falta autorizar ese origen,
+// y se hace listándolo en el .env, separando por coma si hubiera más de uno:
+//
+//   ORIGENES_PERMITIDOS=https://catastro-merlo.vercel.app
+//
+// NUNCA se usa "*": eso abriría la API a cualquier página de internet, que
+// podría leer el padrón entero desde el navegador de cualquiera. Solo se
+// responde a los orígenes de esta lista y a ningún otro. Ver docs/acceso-remoto.md
+//
+// Ojo: esto autoriza al NAVEGADOR a leer la respuesta. No es autenticación.
+// El candado que decide QUIÉN entra es Cloudflare Access, en el túnel.
+// ============================================================================
+const ORIGENES_PERMITIDOS = String(process.env.ORIGENES_PERMITIDOS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+
+app.use((req, res, next) => {
+    // Esta cabecera deja que el navegador LEA X-Datos-De-Prueba aunque el
+    // frente esté en otro dominio. Sin ella, el visor no puede avisar que los
+    // datos son de prueba. No abre nada: solo permite leer esas dos cabeceras.
+    res.setHeader('Access-Control-Expose-Headers', 'X-Datos-De-Prueba, X-Resultado-Recortado');
+
+    const origen = req.headers.origin;
+    if (origen && ORIGENES_PERMITIDOS.includes(origen)) {
+        res.setHeader('Access-Control-Allow-Origin', origen);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+        // El navegador pregunta con un OPTIONS antes de la consulta real
+        // (preflight). Se responde vacío y con las cabeceras de arriba.
+        if (req.method === 'OPTIONS') return res.sendStatus(204);
+    }
+    next();
+});
+
+// helmet agrega cabeceras de seguridad estándar (X-Content-Type-Options,
+// X-Frame-Options, HSTS, etc.).
+//
+// NOTA sobre CSP: sigue desactivado, pero por un motivo distinto al original.
+// La lógica ya NO es un <script> inline (vive en app.js), así que ese
+// impedimento desapareció. Lo que queda bloqueando un CSP estricto es
+// cdn.tailwindcss.com: el build de desarrollo de Tailwind genera CSS en
+// tiempo de ejecución e inyecta estilos inline, cosa que un CSP razonable
+// prohíbe.
+//
+// ROADMAP: compilar Tailwind a un .css estático (deja de hacer falta el CDN,
+// y de paso la app carga más rápido y funciona sin internet). Recién ahí se
+// puede activar un CSP estricto sin romper nada.
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+
+    // ------------------------------------------------------------------
+    // SIN ESTO EL MAPA NO SE VE.
+    //
+    // helmet, por defecto, manda "Referrer-Policy: no-referrer". Con eso el
+    // navegador no le dice a OpenStreetMap desde dónde se le está pidiendo
+    // cada tile, y la política de uso de sus servidores (que son
+    // voluntarios) exige ese dato: responde 403 y el mapa aparece cubierto
+    // de carteles "Access blocked - Referer is required".
+    //
+    // strict-origin-when-cross-origin hace que se mande solamente el
+    // origen (http://localhost:8000), nunca la dirección completa ni los
+    // parámetros de una consulta. Alcanza para OpenStreetMap y no filtra
+    // qué parcela se estaba mirando.
+    // ------------------------------------------------------------------
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}));
+
+// El frontend vive en la carpeta hermana web/. Está separado del servidor a
+// propósito: así se puede desplegar por su cuenta (por ejemplo en Vercel)
+// apuntando a esta API, sin arrastrar el backend.
+const DIR_WEB = path.join(__dirname, '..', 'web');
+
+app.use(express.static(DIR_WEB, {
+    // index: false para que este middleware NO responda por su cuenta con
+    // index.html cuando se pide "/". De eso se encarga la ruta de más abajo,
+    // que además le pone a app.js y app.css un número de versión sacado de su
+    // fecha de modificación. Sin esto, esa ruta nunca se ejecuta y una
+    // computadora puede quedarse usando la versión vieja del programa después
+    // de actualizar, sin que nadie lo note.
+    index: false,
+    maxAge: '1d',
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.json')) {
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+        } else if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
+            // El código de la app (app.js, app.css, index.html) se revalida
+            // SIEMPRE contra el servidor.
+            //
+            // Por qué: con maxAge de 1 día, un municipal que ya abrió el visor
+            // seguiría usando la versión vieja del código hasta 24 h después de
+            // un deploy, sin forma de saberlo. Con 'no-cache' el navegador
+            // pregunta si cambió y, si no cambió, el servidor responde 304 sin
+            // reenviar el archivo: se conserva casi todo el ahorro de tráfico y
+            // desaparece el riesgo de quedar con código viejo.
+            //
+            // Los GeoJSON no entran acá: son grandes, cambian una vez por mes y
+            // el frontend ya les pone su propio anti-caché por querystring.
+            res.setHeader('Cache-Control', 'no-cache');
+        }
+    }
+}));
+
+// Rate limiting SOLO sobre los endpoints de API (no sobre los estáticos:
+// el mapa carga varios GeoJSON pesados en cada visita y no queremos
+// limitar eso). Esto es lo que efectivamente protege contra descargas
+// masivas o abuso automatizado de las consultas a SQL Server.
+const apiLimiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60 * 1000, // 1 minuto
+    max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100, // 100 requests/min/IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas solicitudes. Intente nuevamente en unos instantes.' }
+});
+app.use('/api/', apiLimiter);
+
+// ============================================================================
+// 4. ENDPOINT: Health check (nuevo)
+// ----------------------------------------------------------------------------
+// Permite monitorear el servidor (uptime checks, balanceadores, etc.) sin
+// necesidad de golpear SQL Server. Informa si la DB está o no disponible.
+// ============================================================================
+// Devuelve solo la versión, para poder comprobarla desde el navegador sin
+// mirar la consola del servidor.
+app.get('/version', (req, res) => {
+    res.type('text').send(VERSION);
+});
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        version: VERSION,
+        database: getPool() ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ======================================================================
+// 5. ENDPOINT: Consulta de Rangos de Superficie (m²)
+// ======================================================================
+app.get('/api/superficie', async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    let { min, max } = req.query;
+
+    let superficieMinima = parseFloat(min) || 0;
+    let superficieMaxima = parseFloat(max) || 999999999;
+
+    // Validación defensiva: si el usuario invierte el rango (min > max),
+    // lo corregimos en vez de devolver un resultado vacío confuso.
+    if (superficieMinima > superficieMaxima) {
+        [superficieMinima, superficieMaxima] = [superficieMaxima, superficieMinima];
+    }
+
+    try {
+        const request = activePool.request();
+
+        request.input('min', sql.Float, superficieMinima);
+        request.input('max', sql.Float, superficieMaxima);
+        request.input('maxRows', sql.Int, MAX_ROWS);
+
+        // Se agrega TOP (@maxRows) como cota de seguridad. No cambia el
+        // formato de la respuesta (sigue siendo un array de filas), solo
+        // limita el volumen máximo devuelto en un único request.
+        const queryResult = await request.query(`
+            SELECT DISTINCT TOP (@maxRows)
+                LTRIM(RTRIM(NRO_RENTA)) AS PADRON,
+                LTRIM(RTRIM(NOMENCLA)) AS NOMENCLA,
+                SUP_TER
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON
+            WHERE TRY_CAST(SUP_TER AS FLOAT) >= @min
+              AND TRY_CAST(SUP_TER AS FLOAT) <= @max
+              AND SUP_TER IS NOT NULL
+              AND ACTIVO = 1
+        `);
+
+        res.json(queryResult.recordset);
+    } catch (err) {
+        console.error('❌ Error en consulta de superficie SQL:', err);
+        res.status(500).json({ error: 'Error al consultar superficies en la vista municipal.' });
+    }
+});
+
+// ======================================================================
+// 6. ENDPOINT: Consulta por Estado de Edificación
+// ======================================================================
+app.get('/api/edificacion', async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    let { tipo } = req.query;
+
+    if (!tipo) {
+        return res.status(400).json({ error: 'El parámetro tipo es requerido.' });
+    }
+
+    // Saneamos el parámetro: cota de longitud para evitar abusos con
+    // strings enormes en el LIKE (no afecta el uso normal EDIFICADO/BALDIO).
+    tipo = String(tipo).trim().slice(0, 100);
+
+    try {
+        const request = activePool.request();
+
+        request.input('tipo', sql.VarChar, tipo);
+        request.input('maxRows', sql.Int, MAX_ROWS);
+
+        const queryResult = await request.query(`
+            SELECT DISTINCT TOP (@maxRows)
+                LTRIM(RTRIM(NRO_RENTA)) AS PADRON,
+                LTRIM(RTRIM(NOMENCLA)) AS NOMENCLA,
+                BAL_EDIF
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON
+            WHERE UPPER(LTRIM(RTRIM(BAL_EDIF))) LIKE '%' + UPPER(@tipo) + '%' AND ACTIVO = 1
+        `);
+
+        res.json(queryResult.recordset);
+    } catch (err) {
+        console.error('❌ Error en consulta de edificación SQL:', err);
+        res.status(500).json({ error: 'Error al consultar estado de edificación.' });
+    }
+});
+
+// ====================================================
+// 7. ENDPOINT: Consulta de Catastro en Vivo (ficha de parcela)
+// ====================================================
+app.get('/api/catastro', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+
+    let { padron, nomenclatura } = req.query;
+
+    padron = String(padron || '').trim();
+    nomenclatura = String(nomenclatura || '').trim();
+
+    const activePool = getPool();
+    if (!activePool) {
+        // Sin base: datos de prueba si se pidió expresamente, y si no el 503
+        // de siempre. Ver el comentario de MODO_DEMO más arriba.
+        if (MODO_DEMO && padron) {
+            res.setHeader('X-Datos-De-Prueba', 'true');
+            return res.json(fichaDePrueba(padron, nomenclatura));
+        }
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    if (!padron) {
+        return res.status(400).json({ error: 'El padrón (NRO_RENTA) es requerido.' });
+    }
+
+    try {
+        // ------------------------------------------------------------------
+        // Las 4 consultas se disparan en paralelo. Antes compartían UN SOLO
+        // objeto Request, y eso es un error latente: en node-mssql un Request
+        // representa una operación sobre la conexión y no admite varias
+        // queries simultáneas. Que hoy funcione no lo hace correcto; bajo
+        // concurrencia puede fallar con "Can't acquire connection for the
+        // request" o mezclar resultados entre consultas, que es peor porque no
+        // se nota: la ficha saldría con datos de otra parcela sin ningún error.
+        //
+        // Cada consulta lleva ahora su propio Request con sus propios
+        // parámetros. Sigue siendo paralelo (el pool tiene hasta 20
+        // conexiones), pero cada una es independiente.
+        // ------------------------------------------------------------------
+        const conPadron = () => activePool.request().input('padron', sql.VarChar, padron);
+
+        const qFrentes = conPadron().query(`SELECT CONCEPTO, CONCEPTO AS ZONIFICACION FROM PROGRAM.dbo.VI_CPAR_FRENTES WHERE LTRIM(RTRIM(NRO_RENTAS)) = @padron`);
+        // --------------------------------------------------------------------
+        // TITULARES: se traen TODOS, no solo el primero.
+        //
+        // Medido sobre la base real: 4.645 parcelas tienen más de un titular
+        // (condominios, sucesiones, propiedad horizontal), y una llega a 29.
+        // Es el 23,5% de las parcelas con titular. Antes esta consulta traía
+        // todas las filas pero más abajo se usaba únicamente recordset[0], así
+        // que la ficha mostraba un solo nombre y descartaba el resto sin avisar.
+        //
+        // Se agregan documento y datos de unidad (piso/depto), que son los que
+        // permiten distinguir entre homónimos y ubicar la unidad funcional.
+        //
+        // El ORDER BY no es cosmético: sin él SQL Server no garantiza ningún
+        // orden, así que la misma parcela podría listar sus titulares en
+        // distinto orden en dos consultas seguidas. El proyecto exige
+        // determinismo: misma entrada, misma salida.
+        // --------------------------------------------------------------------
+        const qPropiet = activePool.request()
+            .input('nomenclatura', sql.VarChar, nomenclatura)
+            .query(`
+                SELECT
+                    APELLIDO,
+                    NOMBRE,
+                    TIPO_DOCUMENTO,
+                    DOCUMENTO,
+                    CALLE,
+                    NUMERACION_CALLE AS NUMERACION,
+                    PISO,
+                    DEPARTAMENTO,
+                    BARRIO,
+                    CODIGO_POSTAL_REAL AS CODIGO_POS,
+                    LOCALIDAD,
+                    PROVINCIA
+                FROM PROGRAM.dbo.VI_CPAR_PROPIETARIOS
+                WHERE LTRIM(RTRIM(NOMENCLATURA)) = @nomenclatura
+                ORDER BY APELLIDO, NOMBRE, DOCUMENTO
+            `);
+        // PORCENTAJE_COPROPIEDAD y UNIDADES_LOCATIVAS existían en la vista y no
+        // se estaban usando. Son los datos que describen una propiedad
+        // horizontal, y el visor ya maneja subparcelas.
+        const qPadron  = conPadron().query(`SELECT NOMENCLA, ACTIVO, NRO_RENTA, CALLE AS CALLE1, NRO, BARRIO AS BARRIO1, ESQ_MED, SUP_TER, DESIG_OFI, BAL_EDIF, MET_FRENTE, UNIDADES_LOCATIVAS, PORCENTAJE_COPROPIEDAD FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON WHERE LTRIM(RTRIM(NRO_RENTA)) = @padron`);
+        const qDeuda   = conPadron().query(`SELECT CTA AS CUENTA, CONTRIBUYENTE FROM PROGRAM.dbo.VI_GIS_ININ_CONTRIBUYENTES WHERE LTRIM(RTRIM(PADRON)) = @padron`);
+
+        const [resFrentes, resProp, resPadron, resDeuda] = await Promise.all([qFrentes, qPropiet, qPadron, qDeuda]);
+
+        // Titulares: normalmente los de la consulta por nomenclatura. Si esa no
+        // trajo ninguno y el respaldo por padrón está activado, se intenta por
+        // NRO_RENTA (ver PH_TITULAR_POR_PADRON). Es para las sub-unidades de PH
+        // sin nomenclatura propia. Solo actúa cuando no había titular, así que
+        // no puede pisar un resultado correcto.
+        let filasTitulares = resProp.recordset || [];
+        if (filasTitulares.length === 0 && PH_TITULAR_POR_PADRON && padron) {
+            try {
+                const resPorPadron = await activePool.request()
+                    .input('padron', sql.VarChar, padron)
+                    .query(`
+                        SELECT
+                            APELLIDO, NOMBRE, TIPO_DOCUMENTO, DOCUMENTO, CALLE,
+                            NUMERACION_CALLE AS NUMERACION, PISO, DEPARTAMENTO, BARRIO,
+                            CODIGO_POSTAL_REAL AS CODIGO_POS, LOCALIDAD, PROVINCIA
+                        FROM PROGRAM.dbo.VI_CPAR_PROPIETARIOS
+                        WHERE LTRIM(RTRIM(NRO_RENTA)) = @padron
+                        ORDER BY APELLIDO, NOMBRE, DOCUMENTO
+                    `);
+                filasTitulares = resPorPadron.recordset || [];
+                if (filasTitulares.length) {
+                    console.log(`ℹ️ Titular resuelto por padrón (${padron}): ${filasTitulares.length}. La nomenclatura no había traído ninguno.`);
+                }
+            } catch (e) {
+                // Lo más probable si falla: la vista no tiene la columna NRO_RENTA.
+                console.warn('⚠️ PH_TITULAR_POR_PADRON activo pero la consulta por padrón falló ' +
+                             '(¿VI_CPAR_PROPIETARIOS no tiene NRO_RENTA?). Se sigue sin titular. Detalle:', e.message);
+            }
+        }
+
+        const rawData = {
+            ...((resFrentes.recordset && resFrentes.recordset[0]) || {}),
+            ...((filasTitulares && filasTitulares[0]) || {}),
+            ...((resPadron.recordset && resPadron.recordset[0]) || {}),
+            ...((resDeuda.recordset && resDeuda.recordset[0]) || {})
+        };
+
+        const consolidado = {};
+        for (let key in rawData) consolidado[key.toUpperCase()] = rawData[key];
+
+        // --------------------------------------------------------------------
+        // Lista completa de titulares.
+        //
+        // Se AGREGA como campo nuevo en vez de reemplazar los campos planos
+        // (APELLIDO, NOMBRE, ...) que ya venían. Así cualquier parte del
+        // frontend que todavía lea el titular "principal" sigue funcionando
+        // igual, y la ficha nueva usa el array. Es un cambio aditivo: no rompe
+        // el contrato de la API que ya existía.
+        // --------------------------------------------------------------------
+        consolidado.TITULARES = (filasTitulares || []).map((t) => {
+            const fila = {};
+            for (const clave in t) fila[clave.toUpperCase()] = t[clave];
+            return fila;
+        });
+        consolidado.CANTIDAD_TITULARES = consolidado.TITULARES.length;
+
+        res.json(consolidado);
+
+    } catch (err) {
+        console.error('Error en consulta SQL Server:', err);
+        res.status(500).json({ error: 'Error interno de comunicación con la base de datos municipal.' });
+    }
+});
+
+// ============================================================================
+// ENDPOINT: BÚSQUEDA COMBINADA DE PARCELAS
+// ----------------------------------------------------------------------------
+// Antes había un endpoint por criterio: /api/superficie y /api/edificacion.
+// Servían para una sola condición por vez, así que no se podía pedir algo tan
+// común como "baldíos de más de 500 m² en el barrio Centro": había que filtrar
+// por uno, exportar, y cruzar a mano.
+//
+// Este endpoint acepta todos los criterios juntos y los combina con AND. Los
+// que no llegan, no filtran, así que sirve igual para una condición o para
+// cinco.
+//
+// Los dos endpoints anteriores siguen funcionando: hay pantallas que todavía
+// los usan y no se rompen por esto.
+// ============================================================================
+app.get('/api/filtrar', async (req, res) => {
+    const activePool = getPool();
+
+    // Criterios recibidos. Todos opcionales.
+    const criterios = {
+        supMin: parseFloat(req.query.supMin),
+        supMax: parseFloat(req.query.supMax),
+        frenteMin: parseFloat(req.query.frenteMin),
+        frenteMax: parseFloat(req.query.frenteMax),
+        edificacion: String(req.query.edificacion || '').trim().slice(0, 60),
+        zonificacion: String(req.query.zonificacion || '').trim().slice(0, 80),
+        barrio: String(req.query.barrio || '').trim().slice(0, 80)
+    };
+
+    if (!activePool) {
+        if (MODO_DEMO) {
+            // Estos endpoints devuelven un ARRAY, así que no se les puede
+            // agregar un campo _DEMO adentro sin cambiarles el formato. La
+            // marca va por cabecera, y el visor la lee para avisar en pantalla.
+            // Sin este aviso, una búsqueda sin conexión devuelve superficies
+            // inventadas con la misma cara que las reales.
+            res.setHeader('X-Datos-De-Prueba', 'true');
+            const dePrueba = filtrarDePrueba(criterios);
+            if (dePrueba.length >= MAX_ROWS) res.setHeader('X-Resultado-Recortado', String(MAX_ROWS));
+            return res.json(dePrueba);
+        }
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    try {
+        const inicio = Date.now();
+        const request = activePool.request();
+        const condiciones = ['p.ACTIVO = 1'];
+
+        // --------------------------------------------------------------------
+        // POR QUE SIN TRY_CAST
+        //   SUP_TER y MET_FRENTE son columnas 'money', o sea que ya son
+        //   numericas. El TRY_CAST que habia obligaba a SQL Server a convertir
+        //   las 19.950 filas antes de poder comparar, y una columna envuelta en
+        //   una funcion no puede usar indices: cada busqueda recorria la tabla
+        //   entera. Comparando directo, el motor puede aprovechar los indices
+        //   que existan.
+        //
+        //   Las filas con superficie nula quedan afuera igual, porque en SQL
+        //   una comparacion contra NULL nunca es verdadera.
+        // --------------------------------------------------------------------
+        if (!isNaN(criterios.supMin)) {
+            request.input('supMin', sql.Float, criterios.supMin);
+            condiciones.push('p.SUP_TER >= @supMin');
+        }
+        if (!isNaN(criterios.supMax)) {
+            request.input('supMax', sql.Float, criterios.supMax);
+            condiciones.push('p.SUP_TER <= @supMax');
+        }
+        if (!isNaN(criterios.frenteMin)) {
+            request.input('frenteMin', sql.Float, criterios.frenteMin);
+            condiciones.push('p.MET_FRENTE >= @frenteMin');
+        }
+        if (!isNaN(criterios.frenteMax)) {
+            request.input('frenteMax', sql.Float, criterios.frenteMax);
+            condiciones.push('p.MET_FRENTE <= @frenteMax');
+        }
+
+        // Los valores de estos dos vienen de listas cerradas (los botones de
+        // estado y el desplegable de barrios), asi que se comparan por
+        // igualdad y no con LIKE '%...%'. Un LIKE que empieza con comodin
+        // obliga a leer todas las filas.
+        if (criterios.edificacion) {
+            request.input('edificacion', sql.VarChar, criterios.edificacion);
+            condiciones.push("UPPER(LTRIM(RTRIM(p.BAL_EDIF))) = UPPER(@edificacion)");
+        }
+        if (criterios.barrio) {
+            request.input('barrio', sql.VarChar, criterios.barrio);
+            condiciones.push("UPPER(LTRIM(RTRIM(p.BARRIO))) = UPPER(@barrio)");
+        }
+
+        request.input('maxRows', sql.Int, MAX_ROWS);
+
+        // --------------------------------------------------------------------
+        // LA ZONIFICACION SE BUSCA APARTE
+        //
+        //   Vive en otra vista (VI_CPAR_FRENTES) y una parcela puede tener
+        //   varios frentes. Antes se traia con un OUTER APPLY dentro de la
+        //   consulta principal, y eso lo hacia ejecutarse una vez por CADA
+        //   parcela evaluada -las 19.950- aunque despues se devolvieran veinte.
+        //
+        //   Ahora primero se filtra y se recorta con el TOP, y recien sobre ese
+        //   puñado de filas se busca la zonificacion. El trabajo pasa de miles
+        //   de subconsultas a unas pocas.
+        //
+        //   La excepcion es cuando se filtra POR zonificacion: ahi si hay que
+        //   mirarla antes de decidir que parcelas entran, y se usa un EXISTS,
+        //   que corta apenas encuentra una coincidencia.
+        // --------------------------------------------------------------------
+        if (criterios.zonificacion) {
+            request.input('zonificacion', sql.VarChar, criterios.zonificacion);
+            condiciones.push(`EXISTS (
+                SELECT 1 FROM PROGRAM.dbo.VI_CPAR_FRENTES z
+                WHERE LTRIM(RTRIM(z.NRO_RENTAS)) = LTRIM(RTRIM(p.NRO_RENTA))
+                  AND UPPER(LTRIM(RTRIM(z.CONCEPTO))) = UPPER(@zonificacion)
+            )`);
+        }
+
+        const consulta = `
+            SELECT
+                sel.PADRON,
+                sel.NOMENCLA,
+                sel.SUP_TER,
+                sel.MET_FRENTE,
+                sel.BAL_EDIF,
+                sel.BARRIO,
+                LTRIM(RTRIM(f.CONCEPTO)) AS ZONIFICACION
+            FROM (
+                SELECT DISTINCT TOP (@maxRows)
+                    LTRIM(RTRIM(p.NRO_RENTA)) AS PADRON,
+                    LTRIM(RTRIM(p.NOMENCLA))  AS NOMENCLA,
+                    p.SUP_TER,
+                    p.MET_FRENTE,
+                    LTRIM(RTRIM(p.BAL_EDIF))  AS BAL_EDIF,
+                    LTRIM(RTRIM(p.BARRIO))    AS BARRIO
+                FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON p
+                WHERE ${condiciones.join(' AND ')}
+                ORDER BY LTRIM(RTRIM(p.NRO_RENTA))
+            ) sel
+            OUTER APPLY (
+                SELECT TOP 1 CONCEPTO
+                FROM PROGRAM.dbo.VI_CPAR_FRENTES
+                WHERE LTRIM(RTRIM(NRO_RENTAS)) = sel.PADRON
+            ) f
+            ORDER BY sel.PADRON
+        `;
+
+        const resultado = await request.query(consulta);
+        const ms = Date.now() - inicio;
+
+        // Queda registrado cuanto tardo: si alguna busqueda se vuelve lenta en
+        // la Municipalidad, el numero esta en la consola del servidor y no hay
+        // que adivinar.
+        console.log(`🔎 Filtro: ${resultado.recordset.length} parcelas en ${ms} ms` +
+                    (ms > 3000 ? '  ⚠️ LENTO' : ''));
+
+        // --------------------------------------------------------------------
+        // AVISO DE RESULTADO RECORTADO
+        //   La consulta lleva TOP (@maxRows) como cota de seguridad. Si la
+        //   busqueda encuentra mas parcelas que ese tope, se devuelven solo las
+        //   primeras, y hasta ahora eso no se avisaba en ningun lado: el
+        //   operador veia una lista completa y un mapa al que le faltaban
+        //   parcelas, sin manera de saber que habia mas.
+        //
+        //   Cuando la cantidad devuelta es exactamente el tope, es casi seguro
+        //   que quedaron parcelas afuera. Se avisa por cabecera para que el
+        //   visor lo diga en pantalla.
+        // --------------------------------------------------------------------
+        if (resultado.recordset.length >= MAX_ROWS) {
+            res.setHeader('X-Resultado-Recortado', String(MAX_ROWS));
+            console.log(`   ⚠️ Se alcanzo el tope de ${MAX_ROWS} parcelas: hay mas que no se devolvieron.`);
+        }
+
+        res.json(resultado.recordset);
+
+    } catch (err) {
+        console.error('❌ Error en la búsqueda combinada:', err);
+        res.status(500).json({ error: 'Error al consultar la base municipal.' });
+    }
+});
+
+// ============================================================================
+// ENDPOINT: VALORES DISPONIBLES PARA LOS FILTROS
+// ----------------------------------------------------------------------------
+// Devuelve las zonificaciones y los barrios que existen realmente en la base,
+// para poder ofrecerlos en una lista en vez de que el operador tenga que
+// adivinar cómo se escriben. Se consulta una sola vez al abrir el visor.
+// ============================================================================
+app.get('/api/opciones', async (req, res) => {
+    const activePool = getPool();
+
+    if (!activePool) {
+        if (MODO_DEMO) {
+            res.setHeader('X-Datos-De-Prueba', 'true');
+            return res.json({
+                _DEMO: true,
+                zonificaciones: ['RESIDENCIAL R1', 'RESIDENCIAL R2', 'COMERCIAL C1', 'INDUSTRIAL', 'RURAL'],
+                barrios: ['CENTRO DEMO', 'BARRIO DEMO', 'BALNEARIO DEMO', 'RINCON DEMO']
+            });
+        }
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    try {
+        const [zonas, barrios] = await Promise.all([
+            activePool.request().query(`
+                SELECT DISTINCT LTRIM(RTRIM(CONCEPTO)) AS valor
+                FROM PROGRAM.dbo.VI_CPAR_FRENTES
+                WHERE CONCEPTO IS NOT NULL AND LTRIM(RTRIM(CONCEPTO)) <> ''
+                ORDER BY valor
+            `),
+            activePool.request().query(`
+                SELECT DISTINCT LTRIM(RTRIM(BARRIO)) AS valor
+                FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON
+                WHERE BARRIO IS NOT NULL AND LTRIM(RTRIM(BARRIO)) <> '' AND ACTIVO = 1
+                ORDER BY valor
+            `)
+        ]);
+
+        res.json({
+            zonificaciones: zonas.recordset.map((r) => r.valor),
+            barrios: barrios.recordset.map((r) => r.valor)
+        });
+    } catch (err) {
+        console.error('❌ Error al leer las opciones de filtro:', err);
+        res.status(500).json({ error: 'Error al consultar la base municipal.' });
+    }
+});
+
+// ============================================================================
+// Ruta raíz: sirve el visor.
+// ----------------------------------------------------------------------------
+// Dos detalles que importan y que no se ven a simple vista:
+//
+// 1. Cache-Control explícito. Esta ruta NO pasa por el middleware de estáticos,
+//    así que no hereda su política de caché. Sin esta línea el navegador se
+//    queda con una copia vieja del HTML y sigue pidiendo la versión anterior de
+//    app.js aunque el servidor ya tenga la nueva: un deploy no llegaría a los
+//    municipales hasta que vaciaran el caché a mano.
+//
+// 2. El archivo se llama 'index.html', todo en minúsculas, igual que en el
+//    disco. Windows no distingue mayúsculas, pero un servidor Linux sí, y una
+//    diferencia de mayúscula ahí devuelve un error de archivo inexistente.
+// ============================================================================
+app.get('/', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+
+    // ------------------------------------------------------------------
+    // VERSION AUTOMATICA DE LOS ARCHIVOS DE LA APLICACION
+    //
+    // El HTML pide app.js y app.css con un ?v=N. Ese numero venia escrito a
+    // mano, y bastaba olvidarse de subirlo -o que el navegador tuviera
+    // guardado el HTML viejo- para que una computadora siguiera usando la
+    // version anterior del programa despues de actualizar. Es dificil de
+    // notar: el visor abre igual, pero se comporta como la version vieja.
+    //
+    // Ahora el numero sale de la fecha de modificacion de cada archivo.
+    // Cambia solo cuando el archivo cambia: despues de una actualizacion el
+    // navegador vuelve a pedirlos, y mientras no haya cambios los sigue
+    // tomando de su cache.
+    // ------------------------------------------------------------------
+    const fs = require('fs');
+    const rutaHtml = path.join(DIR_WEB, 'index.html');
+
+    const version = (relativa) => {
+        try {
+            return String(Math.floor(fs.statSync(path.join(DIR_WEB, relativa)).mtimeMs));
+        } catch (err) {
+            return String(Date.now());
+        }
+    };
+
+    try {
+        const html = fs.readFileSync(rutaHtml, 'utf8')
+            .replace(/(css\/app\.css)\?v=[^"']*/g, `$1?v=${version('css/app.css')}`)
+            .replace(/(js\/config\.js)\?v=[^"']*/g, `$1?v=${version('js/config.js')}`)
+            .replace(/(js\/app\.js)\?v=[^"']*/g,    `$1?v=${version('js/app.js')}`)
+            .replace(/__VERSION__/g, VERSION);
+
+        res.type('html').send(html);
+    } catch (err) {
+        // Si algo falla, se entrega el archivo tal cual: es preferible el
+        // visor con una version vieja antes que un visor que no abre.
+        console.error('No se pudo versionar el HTML:', err.message);
+        res.sendFile(rutaHtml);
+    }
+});
+
+// ============================================================================
+// 8. MANEJO DE ERRORES NO CAPTURADOS Y RUTAS INEXISTENTES
+// ============================================================================
+app.use((req, res) => {
+    res.status(404).json({ error: 'Recurso no encontrado.' });
+});
+
+// Middleware de error genérico (red de seguridad final). Nunca debería
+// dispararse si cada endpoint maneja su propio try/catch, pero evita que
+// una excepción no controlada tumbe el proceso.
+app.use((err, req, res, next) => {
+    console.error('❌ Error no controlado:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+});
+
+// ============================================================================
+// 9. ARRANQUE Y APAGADO ORDENADO
+// ============================================================================
+async function start() {
+    await initDb(); // Intenta conectar a SQL Server (no bloquea el arranque si falla)
+
+    // ------------------------------------------------------------------------
+    // A QUÉ INTERFAZ SE ATA EL SERVIDOR
+    //
+    //   Por defecto escucha en todas las interfaces (0.0.0.0), que es como
+    //   funcionó siempre: así se puede abrir en la propia computadora y también
+    //   desde otra de la red de la Muni.
+    //
+    //   Para el acceso remoto por túnel conviene ponerle HOST=127.0.0.1 en el
+    //   .env. Con eso la API deja de escuchar a la red y solo la alcanza el
+    //   túnel, que corre en la misma computadora. Es una cerradura más: aunque
+    //   alguien esté dentro de la red municipal, no llega a la API sin pasar
+    //   por el candado del túnel. Ver docs/acceso-remoto.md
+    // ------------------------------------------------------------------------
+    const HOST = String(process.env.HOST || '0.0.0.0').trim();
+
+    const servidorHttp = app.listen(PORT, HOST, () => {
+        console.log(`
+    ====================================================
+    VISOR SIG MUNICIPAL - VILLA DE MERLO
+    VERSION ${VERSION}
+    ====================================================
+    > Local:    http://localhost:${PORT}
+    > DB:       ${getPool() ? 'conectada' : 'NO conectada (modo degradado)'}
+    ====================================================
+    `);
+    });
+
+    // ------------------------------------------------------------------------
+    // SI EL PUERTO YA ESTA OCUPADO (u otro error al arrancar el HTTP)
+    // ----------------------------------------------------------------------
+    //   Sin este manejador, un puerto ocupado (por ejemplo: alguien dejo el
+    //   visor abierto a mano con INICIAR.bat mientras el Servicio de Windows
+    //   tambien intenta arrancar en el mismo puerto) tira una excepcion no
+    //   capturada. El proceso se cae igual, pero el motivo queda invisible:
+    //   en el log de NSSM aparece un stack trace generico y no un mensaje
+    //   que diga que fue un choque de puerto.
+    //
+    //   Con esto, el log dice explicitamente cual fue el problema antes de
+    //   cerrar. NSSM sigue reiniciando el proceso solo despues (AppExit
+    //   Default Restart), como ya estaba configurado; esto no cambia esa
+    //   parte, solo hace legible el motivo cuando vuelva a pasar.
+    // ------------------------------------------------------------------------
+    servidorHttp.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`❌ El puerto ${PORT} ya esta en uso por otro programa (¿el visor ya esta corriendo en esta computadora, a mano o como servicio?). El servidor no puede arrancar.`);
+        } else {
+            console.error('❌ Error al levantar el servidor HTTP:', err.message);
+        }
+        process.exit(1);
+    });
+}
+
+// Cierre ordenado del pool de SQL Server al detener el proceso (Ctrl+C,
+// reinicio por PM2/systemd, etc.). Evita conexiones "colgadas" en el SQL
+// Server municipal.
+async function shutdown(signal) {
+    console.log(`\n🛑 Señal ${signal} recibida. Cerrando servidor...`);
+    try {
+        if (pool) await pool.close();
+        console.log('✅ Pool de SQL Server cerrado correctamente.');
+    } catch (err) {
+        console.error('⚠️  Error cerrando el pool de SQL Server:', err.message);
+    } finally {
+        process.exit(0);
+    }
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// ============================================================================
+// REINTENTO DE CONEXION EN SEGUNDO PLANO
+// ----------------------------------------------------------------------------
+//   initDb() se llama una sola vez al arrancar (dentro de start()). Con
+//   INICIAR.bat eso nunca fue un problema real: si la base no respondia,
+//   habia una persona mirando la ventana negra que volvia a intentar.
+//
+//   Corriendo como Servicio de Windows (ver NSSM) nadie mira esa ventana:
+//   si el servicio arranca con la computadora antes de que la red municipal
+//   este lista, la primera conexion falla y el servidor queda en modo
+//   degradado PARA SIEMPRE, sin que nadie lo note hasta que alguien abra una
+//   ficha y salga vacia.
+//
+//   Este intervalo es la red de seguridad para ese caso puntual. No
+//   reemplaza a initDb(): mientras haya conexion, no hace nada (getPool()
+//   devuelve el pool y el `return` corta enseguida). Solo actua cuando el
+//   servidor quedo sin base desde el arranque.
+// ============================================================================
+setInterval(async () => {
+    if (getPool()) return; // ya conectado, no hace nada
+    console.log('🔄 Reintentando conexión a SQL Server...');
+    await initDb();
+}, 2 * 60 * 1000); // cada 2 minutos
+
+start();

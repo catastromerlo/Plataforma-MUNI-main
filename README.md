@@ -1,4 +1,4 @@
-#Plataforma MUNI — Sistema catastral de Villa de Merlo
+Plataforma MUNI — Sistema catastral de Villa de Merlo
 Visor web de las parcelas de Villa de Merlo (San Luis) para la Municipalidad. Mapa interactivo sobre Leaflet, con la ficha catastral de cada parcela consultada en vivo contra la base municipal.
 
 Instalarlo en una computadora de la Municipalidad

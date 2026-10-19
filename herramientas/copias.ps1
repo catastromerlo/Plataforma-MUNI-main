@@ -52,6 +52,17 @@ if ($encontradas.Count -eq 0) {
     exit 0
 }
 
+# --- Desde que carpeta corre el Servicio de Windows --------------------------
+# Si el visor esta instalado como servicio, NSSM guarda en el registro la ruta
+# de servidor\ desde la que arranca. La copia del programa es la carpeta de
+# arriba. Se necesita saberlo porque borrar esa carpeta deja al servicio sin
+# poder arrancar.
+$rutaServicio = $null
+$claveServicio = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\VisorCatastralMerlo\Parameters" -EA SilentlyContinue
+if ($claveServicio -and $claveServicio.AppDirectory) {
+    $rutaServicio = Split-Path -Parent ($claveServicio.AppDirectory.TrimEnd('\'))
+}
+
 # --- Datos de cada copia -----------------------------------------------------
 $copias = @()
 foreach ($ruta in $encontradas) {
@@ -79,6 +90,7 @@ foreach ($ruta in $encontradas) {
         Datos     = $datos
         Fecha     = (Get-Item (Join-Path $ruta "INICIAR.bat")).LastWriteTime
         Puntaje   = $puntaje
+        UsaServicio = [bool]($rutaServicio -and ($ruta -eq $rutaServicio))
     }
 }
 
@@ -90,7 +102,11 @@ Write-Host ""
 $n = 0
 foreach ($c in $copias) {
     $n++
-    $etiqueta = if ($n -eq 1) { "  >>> RECOMENDADA <<<" } else { "      se puede borrar" }
+    if ($c.UsaServicio) {
+        $etiqueta = if ($n -eq 1) { "  >>> RECOMENDADA <<<   (la usa el Servicio de Windows)" } else { "      NO BORRAR: la usa el Servicio de Windows" }
+    } else {
+        $etiqueta = if ($n -eq 1) { "  >>> RECOMENDADA <<<" } else { "      se puede borrar" }
+    }
     Write-Host "  [$n] $etiqueta"
     Write-Host "      Carpeta : $($c.Ruta)"
     Write-Host "      Version : $($c.Version)"
@@ -117,17 +133,22 @@ if ($copias.Count -eq 1) {
     Write-Host ""
     Write-Host "   3. Las demas:"
     foreach ($c in $copias[1..($copias.Count-1)]) {
-        $aviso = if ($c.Env) { "   <-- tiene configuracion propia" } else { "" }
+        $aviso = if ($c.UsaServicio) { "   <-- LA USA EL SERVICIO, no borrar" } elseif ($c.Env) { "   <-- tiene configuracion propia" } else { "" }
         Write-Host "      $($c.Ruta)$aviso"
     }
     Write-Host ""
-    Write-Host "   NO BORRAR el visor anterior mientras el nuevo se este probando."
-    Write-Host "   Es la unica forma de volver atras si algo no funciona: hasta que"
-    Write-Host "   este confirmado que el nuevo anda, en la Municipalidad tienen que"
-    Write-Host "   poder seguir trabajando con el de siempre."
-    Write-Host ""
-    Write-Host "   Los dos pueden convivir: usan puertos distintos (8000 el anterior,"
-    Write-Host "   8001 el nuevo), asi que no se molestan entre si."
+    Write-Host "   ANTES DE BORRAR cualquier copia, confirmar que no sea la que usa el"
+    Write-Host "   Servicio de Windows (si esta instalado): el servicio queda apuntando a"
+    Write-Host "   una carpeta concreta y, si se la borra, el visor deja de arrancar solo."
+    if ($rutaServicio) {
+        Write-Host ""
+        Write-Host "   Este servicio corre desde: $rutaServicio"
+        if ($rutaServicio -ne $mejor.Ruta) {
+            Write-Host "   No coincide con la recomendada. Si se prefiere conservar la recomendada,"
+            Write-Host "   correr INSTALAR.bat (como administrador) desde ESA carpeta antes de"
+            Write-Host "   borrar la otra: reconfigura el servicio para que apunte a ella."
+        }
+    }
 }
 
 Write-Host ""

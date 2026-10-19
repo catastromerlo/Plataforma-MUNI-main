@@ -316,7 +316,7 @@ SQL Server, acceso de **solo lectura** sobre cuatro vistas:
 - `VI_GIS_CATASTRO_PADRON` — datos de la parcela
 - `VI_CPAR_PROPIETARIOS` — titulares (varios por parcela)
 - `VI_CPAR_FRENTES` — zonificación
-- `VI_GIS_DEUDA` — número de cuenta
+- `VI_GIS_ININ_CONTRIBUYENTES` — número de cuenta y contribuyente
 
 Es un sistema contratado a un proveedor: las tablas no se modifican, solo se
 consultan.

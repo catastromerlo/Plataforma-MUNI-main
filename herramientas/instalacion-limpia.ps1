@@ -4,9 +4,11 @@
 # -----------------------------------------------------------------------------
 #  QUE HACE
 #    Descarga la ultima version, la instala en la carpeta indicada, instala los
-#    componentes, abre la ventana de configuracion de la base y deja un acceso
-#    directo en el escritorio. Al final avisa si quedaron copias viejas del
-#    programa dando vueltas.
+#    componentes, abre la ventana de configuracion de la base, deja el visor
+#    instalado como Servicio de Windows (si esta consola es de administrador;
+#    si no, queda para hacerlo despues) y crea un acceso directo en el
+#    escritorio. Al final avisa si quedaron copias viejas del programa dando
+#    vueltas.
 #
 #  POR QUE
 #    Bajar el ZIP y descomprimir a mano deja una carpeta nueva cada vez. Con
@@ -38,7 +40,7 @@ Write-Host "   $Destino"
 Write-Host ""
 
 # --- Node.js -----------------------------------------------------------------
-Write-Host "  [1/6] Verificando Node.js..."
+Write-Host "  [1/7] Verificando Node.js..."
 $node = Get-Command node -EA SilentlyContinue
 if (-not $node) {
     Write-Host ""
@@ -62,7 +64,7 @@ if (Test-Path $envPrevio) {
 }
 
 # --- Descarga ----------------------------------------------------------------
-Write-Host "  [2/6] Descargando la ultima version..."
+Write-Host "  [2/7] Descargando la ultima version..."
 $temporal = Join-Path $env:TEMP ("visor-" + [Guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Path $temporal -Force | Out-Null
 $zip = Join-Path $temporal "programa.zip"
@@ -74,7 +76,7 @@ try {
     Invoke-WebRequest -Uri $origen -OutFile $zip -UseBasicParsing
     Write-Host "        Descargada."
 
-    Write-Host "  [3/6] Instalando los archivos..."
+    Write-Host "  [3/7] Instalando los archivos..."
     Expand-Archive -Path $zip -DestinationPath $temporal -Force
     $contenido = Get-ChildItem -Path $temporal -Directory | Select-Object -First 1
     if (-not $contenido) { throw "El archivo descargado no tiene el contenido esperado." }
@@ -95,7 +97,7 @@ try {
 }
 
 # --- Componentes -------------------------------------------------------------
-Write-Host "  [4/6] Instalando componentes (puede tardar unos minutos)..."
+Write-Host "  [4/7] Instalando componentes (puede tardar unos minutos)..."
 Push-Location (Join-Path $Destino "servidor")
 try {
     & npm install --no-audit --no-fund 2>&1 | Out-Null
@@ -112,7 +114,7 @@ try {
 }
 
 # --- Configuracion de la base ------------------------------------------------
-Write-Host "  [5/6] Configuracion de la base de datos..."
+Write-Host "  [5/7] Configuracion de la base de datos..."
 if (Test-Path (Join-Path $Destino "servidor\.env")) {
     Write-Host "        Ya hay una configuracion cargada."
     Write-Host "        Para cambiarla: CONFIGURAR.bat en la carpeta instalada."
@@ -121,8 +123,34 @@ if (Test-Path (Join-Path $Destino "servidor\.env")) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Destino "herramientas\configurar.ps1")
 }
 
+# --- Servicio de Windows ------------------------------------------------------
+# Mejor esfuerzo: servicio-instalar.ps1 chequea por su cuenta si esta consola
+# es de administrador. Si no lo es, lo dice el solo y no instala nada; este
+# script sigue igual, el visor queda usable con el acceso directo (modo
+# manual) y se puede instalar el servicio mas tarde con INSTALAR.bat.
+Write-Host "  [6/7] Instalando el visor como servicio de Windows..."
+# Se acota ErrorActionPreference solo para esta llamada: invocar un .exe
+# (aca, un powershell.exe anidado) bajo "Stop" corta el script entero si ese
+# proceso llega a escribir algo en su salida de error, aunque no sea una
+# falla real. Ya paso con nssm.exe (ver servicio-instalar.ps1) y es la misma
+# trampa.
+$prefAnterior = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Destino "herramientas\servicio-instalar.ps1")
+$servicioOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prefAnterior
+if (-not $servicioOk) {
+    Write-Host ""
+    Write-Host "        No quedo instalado como servicio (el motivo figura arriba;"
+    Write-Host "        el mas comun es que esta consola no sea de administrador)."
+    Write-Host "        El visor se puede usar igual con el acceso directo."
+    Write-Host "        Para instalarlo despues: INSTALAR.bat en"
+    Write-Host "        $Destino, con click derecho -> Ejecutar como administrador."
+    Write-Host ""
+}
+
 # --- Acceso directo ----------------------------------------------------------
-Write-Host "  [6/6] Acceso directo en el escritorio..."
+Write-Host "  [7/7] Acceso directo en el escritorio..."
 try {
     $enlace = Join-Path ([Environment]::GetFolderPath('Desktop')) "Visor Catastral.lnk"
     $shell  = New-Object -ComObject WScript.Shell
@@ -161,14 +189,13 @@ Write-Host "   INSTALADO - version $version"
 Write-Host "  ============================================================"
 Write-Host ""
 Write-Host "   Carpeta: $Destino"
-Write-Host "   Para usar el visor: el acceso directo del escritorio."
-Write-Host ""
-
-Write-Host "   Este visor usa el puerto 8001. El visor anterior usa el 8000,"
-Write-Host "   asi que los dos pueden estar abiertos a la vez sin molestarse:"
-Write-Host ""
-Write-Host "     http://localhost:8000   visor anterior"
-Write-Host "     http://localhost:8001   este"
+if ($servicioOk) {
+    Write-Host "   El visor arranca solo con la computadora, en:"
+    Write-Host "   http://localhost:8002"
+} else {
+    Write-Host "   Para usar el visor: el acceso directo del escritorio"
+    Write-Host "   (http://localhost:8002, mientras esa ventana este abierta)."
+}
 Write-Host ""
 
 if ($otras.Count -gt 0) {
@@ -176,12 +203,16 @@ if ($otras.Count -gt 0) {
     Write-Host ""
     foreach ($o in $otras) { Write-Host "     $o" }
     Write-Host ""
-    Write-Host "   NO BORRARLAS TODAVIA. Mientras este visor se este probando, el"
-    Write-Host "   anterior tiene que seguir disponible: si algo aca no funciona,"
-    Write-Host "   se sigue trabajando con el de siempre."
-    Write-Host ""
-    Write-Host "   Recien cuando este confirmado que este anda bien, y despues de"
-    Write-Host "   un tiempo de uso, tiene sentido ordenar las carpetas."
+    Write-Host "   Conviene borrarlas una vez confirmado que esta instalacion"
+    Write-Host "   anda bien: el visor usa siempre el puerto fijo 8002, asi que si"
+    Write-Host "   alguna vez se abre una de esas por error, compite por ese puerto"
+    Write-Host "   con esta."
+    if ($servicioOk) {
+        Write-Host ""
+        Write-Host "   El servicio de Windows ya quedo apuntando a $Destino. Las"
+        Write-Host "   otras carpetas no le hacen nada al servicio con solo existir,"
+        Write-Host "   pero mejor ordenarlas para no confundirse."
+    }
 }
 Write-Host ""
 Write-Host "  ============================================================"

@@ -55,7 +55,7 @@ function Salir-Error($mensaje) {
 # --- Permisos de administrador ----------------------------------------------
 $esAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $esAdmin) {
-    Salir-Error "Este paso necesita permisos de administrador. Cerrar esta ventana, click derecho sobre SERVICIO-INSTALAR.bat y elegir 'Ejecutar como administrador'."
+    Salir-Error "Este paso necesita permisos de administrador. Cerrar esta ventana, click derecho sobre INSTALAR.bat y elegir 'Ejecutar como administrador'."
 }
 
 # --- Verificaciones previas: que INSTALAR.bat ya se haya corrido -----------

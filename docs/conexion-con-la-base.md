@@ -38,7 +38,8 @@ base no es accesible desde internet.
 | **Barrio, calle, altura** | **base** | `VI_GIS_CATASTRO_PADRON` |
 | **Titulares** | **base** | `VI_CPAR_PROPIETARIOS` |
 | **Zonificación** | **base** | `VI_CPAR_FRENTES.CONCEPTO` |
-| **N.º de cuenta** | **base** | `VI_GIS_DEUDA.CUENTA` |
+| **N.º de cuenta** | **base** | `VI_GIS_ININ_CONTRIBUYENTES.CTA` |
+| **Contribuyente** | **base** | `VI_GIS_ININ_CONTRIBUYENTES.CONTRIBUYENTE` |
 
 Los filtros por superficie, frente, estado, zona y barrio **dependen enteramente
 de la base**: el visor no puede calcular ninguno de esos valores por su cuenta.

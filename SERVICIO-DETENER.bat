@@ -5,7 +5,8 @@ REM  Detiene el servicio de Windows SIN desinstalarlo. Util para editar
 REM  archivos del programa a mano, o antes de mover la carpeta.
 REM
 REM  El visor deja de responder en su puerto mientras este detenido.
-REM  Para levantarlo de nuevo: SERVICIO-INICIAR.bat
+REM  Para levantarlo de nuevo: services.msc (boton derecho sobre el servicio
+REM  -> Iniciar), o como administrador: net start VisorCatastralMerlo
 REM
 REM  Requiere permisos de administrador: click derecho sobre este archivo ->
 REM  "Ejecutar como administrador".

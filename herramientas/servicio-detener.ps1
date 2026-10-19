@@ -6,12 +6,13 @@
  o antes de mover la carpeta a otra ubicacion.
 
  El visor deja de responder en su puerto mientras el servicio este
- detenido. Para volver a levantarlo: SERVICIO-INICIAR.bat
+ detenido. Para volver a levantarlo: services.msc (boton derecho
+ sobre el servicio -> Iniciar) o, como administrador, net start VisorCatastralMerlo
 
  Si lo que se quiere es MOVER LA CARPETA a otro lugar: no alcanza con
  pararlo y volver a arrancarlo desde aca. Despues de moverla, hay que
- volver a correr SERVICIO-INSTALAR.bat desde la ubicacion nueva: como ya
- detecta que el servicio existe, lo reconfigura con la ruta correcta.
+ volver a correr INSTALAR.bat (como administrador) desde la ubicacion nueva:
+ como ya detecta que el servicio existe, lo reconfigura con la ruta correcta.
 
  Requiere permisos de administrador.
 ============================================================================
@@ -56,7 +57,8 @@ Write-Host ""
 if ($estado -match "SERVICE_STOPPED") {
     Write-Host "Listo. El servicio esta detenido." -ForegroundColor Green
     Write-Host "El visor no responde en su puerto mientras este parado."
-    Write-Host "Para volver a levantarlo: SERVICIO-INICIAR.bat"
+    Write-Host "Para volver a levantarlo: services.msc, o como administrador:"
+    Write-Host "  net start VisorCatastralMerlo"
 } else {
     Write-Host "El servicio quedo en estado: $estado" -ForegroundColor Yellow
 }

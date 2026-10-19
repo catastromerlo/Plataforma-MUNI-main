@@ -25,7 +25,7 @@ $raiz    = Split-Path -Parent $carpeta
 $origen  = "https://github.com/FacuChiza/Plataforma-MUNI/archive/refs/heads/main.zip"
 
 # -----------------------------------------------------------------------------
-# SERVICIO DE WINDOWS (si esta instalado con SERVICIO-INSTALAR.bat)
+# SERVICIO DE WINDOWS (si esta instalado con INSTALAR.bat)
 # -----------------------------------------------------------------------------
 #   Se detecta aca, antes de descargar nada, para saber si mas abajo hay que
 #   pararlo antes de tocar archivos y volver a levantarlo despues.

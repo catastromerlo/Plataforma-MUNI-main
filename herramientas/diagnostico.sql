@@ -54,7 +54,7 @@ FROM (VALUES
         ('VI_GIS_CATASTRO_PADRON'),
         ('VI_CPAR_PROPIETARIOS'),
         ('VI_CPAR_FRENTES'),
-        ('VI_GIS_DEUDA')
+        ('VI_GIS_ININ_CONTRIBUYENTES')
      ) AS v(nombre)
 LEFT JOIN sys.objects o
        ON o.name = v.nombre
@@ -80,7 +80,7 @@ WHERE TABLE_NAME IN (
         'VI_GIS_CATASTRO_PADRON',
         'VI_CPAR_PROPIETARIOS',
         'VI_CPAR_FRENTES',
-        'VI_GIS_DEUDA')
+        'VI_GIS_ININ_CONTRIBUYENTES')
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
 GO
 
@@ -125,7 +125,7 @@ SELECT '5. VOLUMEN', 'VI_CPAR_PROPIETARIOS', COUNT(*), NULL FROM dbo.VI_CPAR_PRO
 UNION ALL
 SELECT '5. VOLUMEN', 'VI_CPAR_FRENTES',      COUNT(*), NULL FROM dbo.VI_CPAR_FRENTES
 UNION ALL
-SELECT '5. VOLUMEN', 'VI_GIS_DEUDA',         COUNT(*), NULL FROM dbo.VI_GIS_DEUDA;
+SELECT '5. VOLUMEN', 'VI_GIS_ININ_CONTRIBUYENTES',         COUNT(*), NULL FROM dbo.VI_GIS_ININ_CONTRIBUYENTES;
 GO
 
 /* ----------------------------------------------------------------------------

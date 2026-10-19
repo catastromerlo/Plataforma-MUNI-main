@@ -118,7 +118,7 @@ Gratis, en <https://dash.cloudflare.com/sign-up>. Conviene una cuenta
 **de la Municipalidad**, no personal: el acceso a los datos de los vecinos
 tiene que quedar a nombre del organismo, no de una persona.
 
-Para tener un dominio propio (`catastro.villademerlo.gob.ar`) hay que agregar
+Para tener un dominio propio (`catastro-villademerlo.gob.ar`) hay que agregar
 el dominio del municipio a Cloudflare. Si no se tiene a mano, Cloudflare da una
 dirección `.trycloudflare.com` para probar, aunque para uso diario conviene el
 dominio propio.
@@ -140,12 +140,12 @@ Después se le dice a qué apunta el túnel (al visor local). En el archivo de
 configuración del túnel:
 
 ```yaml
-tunnel: visor-catastro
+tunnel: Conexion-Pc-Catastro
 credentials-file: C:\Users\<usuario>\.cloudflared\<id>.json
 
 ingress:
-  - hostname: catastro.villademerlo.gob.ar
-    service: http://localhost:8001      # el puerto que dice INICIAR.bat
+  - hostname: catastro-villademerlo.gob.ar
+    service: http://localhost:8002      # puerto fijo del visor
   - service: http_status:404
 ```
 
@@ -168,7 +168,7 @@ que separa "acceso remoto" de "fuga de datos".**
 En el panel de Cloudflare, en **Zero Trust → Access → Applications**:
 
 1. Agregar una aplicación de tipo *Self-hosted*.
-2. Dominio: el mismo del túnel (`catastro.villademerlo.gob.ar`).
+2. Dominio: el mismo del túnel (`catastro-villademerlo.gob.ar`).
 3. Crear una política que permita el acceso **solo a una lista de correos**
    (los de los municipales autorizados), o a un dominio de correo entero
    (`@villademerlo.gob.ar`) si lo tienen.
@@ -180,7 +180,7 @@ borrarlo de la lista.
 
 ### 6. Listo
 
-Los municipales entran a `https://catastro.villademerlo.gob.ar`, ponen su
+Los municipales entran a `https://catastro-villademerlo.gob.ar`, ponen su
 correo, y usan el visor como si estuvieran en la oficina. La computadora de la
 Muni tiene que estar encendida, con el visor y el túnel corriendo.
 
@@ -194,7 +194,7 @@ carpeta `web/`. Los pasos extra sobre la Forma A:
 1. Publicar en Vercel apuntando el proyecto a este repositorio (carpeta `web`).
 2. En `web/js/config.js`, poner en `API_BASE` la dirección del túnel:
    ```js
-   API_BASE: 'https://catastro.villademerlo.gob.ar'
+   API_BASE: 'https://catastro-villademerlo.gob.ar'
    ```
 3. En `servidor\.env`, autorizar el dominio de Vercel:
    ```

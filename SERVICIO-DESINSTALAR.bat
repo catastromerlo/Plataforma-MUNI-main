@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================================
 REM  VISOR CATASTRAL - VILLA DE MERLO
-REM  Quita el servicio de Windows instalado con SERVICIO-INSTALAR.bat.
+REM  Quita el servicio de Windows instalado con INSTALAR.bat.
 REM
 REM  No borra el programa: solo hace que deje de arrancar solo con la
 REM  computadora. Despues de esto, para usar el visor hace falta volver a

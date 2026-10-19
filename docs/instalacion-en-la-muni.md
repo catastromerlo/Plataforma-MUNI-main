@@ -1,7 +1,8 @@
 # Instalar el visor catastral en una computadora de la Municipalidad
 
 Guía para poner el visor a funcionar en un equipo de la Municipalidad. No hace
-falta saber programar: son cuatro pasos y dos doble clics.
+falta saber programar: son tres pasos, y el último además deja el visor
+arrancando solo con la computadora, sin tener que abrir nada todos los días.
 
 **Requisito:** la computadora tiene que estar en la red de la Municipalidad,
 la misma desde donde se accede al sistema de catastro. Sin eso el mapa se ve,
@@ -11,7 +12,7 @@ pero las fichas de las parcelas salen sin datos.
 
 ## 1. Descargar el programa
 
-Entrar a <https://github.com/FacuChiza/Plataforma-MUNI>
+Entrar a <https://github.com/catastromerlo/Plataforma-MUNI-main>
 
 Botón verde **Code** → **Download ZIP**.
 
@@ -27,11 +28,9 @@ se borra el programa.
 
 ## 3. Instalar (una sola vez)
 
-Entrar a la carpeta y hacer doble clic en:
-
-```
-INSTALAR.bat
-```
+Entrar a la carpeta, clic derecho sobre `INSTALAR.bat` → **Ejecutar como
+administrador**. (Hace falta: el último paso deja el visor instalado como
+servicio de Windows, y eso requiere permisos de administrador.)
 
 Se abre una ventana negra que va contando los pasos. Va a:
 
@@ -39,6 +38,8 @@ Se abre una ventana negra que va contando los pasos. Va a:
 2. Descargar los componentes que el visor necesita
 3. Pedir los datos de conexión a la base
 4. Probar que la conexión funcione
+5. Dejar el visor instalado como servicio de Windows, arrancando solo con la
+   computadora, en `http://localhost:8002`
 
 Cuando llegue el paso 3 se abre una ventana con cuatro campos:
 
@@ -80,23 +81,29 @@ instalar.
 
 ## 4. Usar el visor
 
-Doble clic en:
+Si el paso anterior instaló el servicio, no hay nada más que hacer: el visor
+ya está corriendo y va a seguir arrancando solo cada vez que se prenda la
+computadora, en:
 
 ```
-INICIAR.bat
+http://localhost:8002
 ```
 
-Se abre una ventana negra y, unos segundos después, el visor en el navegador.
+Para abrirlo, entrar a esa dirección en el navegador, o hacer doble clic en
+`INICIAR.bat`: lo detecta solo y abre el navegador ahí, sin dejar ninguna
+ventana que haya que mantener abierta.
 
-> **La ventana negra tiene que quedar abierta.** Es el programa funcionando. Si
-> se cierra, el visor deja de andar. Se puede minimizar sin problema.
-
-Para cerrar el visor: cerrar esa ventana.
+> **Si el servicio no llegó a instalarse** (por ejemplo, porque `INSTALAR.bat`
+> no se corrió como administrador), `INICIAR.bat` sigue sirviendo como
+> respaldo manual: deja el servidor corriendo en una ventana negra que hay
+> que mantener abierta mientras se usa el visor. Para instalar el servicio
+> después: volver a correr `INSTALAR.bat`, esta vez como administrador.
 
 ### Acceso directo en el escritorio
 
 Para no tener que buscar la carpeta cada vez: clic derecho sobre `INICIAR.bat`
-→ **Enviar a** → **Escritorio (crear acceso directo)**.
+→ **Enviar a** → **Escritorio (crear acceso directo)**. Funciona igual corra
+el visor como servicio o en modo manual.
 
 ---
 
@@ -109,11 +116,8 @@ Buscar un padrón conocido y abrir su ficha:
 - **Aparece un cartel amarillo "DATOS DE PRUEBA"** → está mostrando datos
   inventados; ver más abajo
 
-Otra forma: entrar a `/health` en el puerto que dice la ventana negra
-(por ejemplo <http://localhost:8001/health>). Tiene que decir
+Otra forma: entrar a <http://localhost:8002/health>. Tiene que decir
 `"database": "connected"`.
-
-No usar el 8000: ese es el del visor anterior.
 
 ---
 
@@ -145,13 +149,14 @@ se guardó desde `CONFIGURAR.bat`, ya queda en `false`.
 
 Así, si algo falla, se nota, en lugar de quedar tapado por datos falsos.
 
-### "Dice que no encontró ningún puerto libre"
+### "El visor no arranca: dice que el puerto 8002 ya está en uso"
 
-Pasa solo si hay muchos programas usando la red. Cerrar alguno y volver a
-intentar, o reiniciar la computadora.
-
-No hace falta cerrar el visor anterior: este busca su propio puerto y los dos
-pueden convivir.
+El visor usa siempre el puerto 8002. Si aparece este aviso es porque algo más
+ya lo está usando — lo más común es que el servicio ya esté corriendo y
+alguien además haya abierto `INICIAR.bat` a mano. Comprobar en `services.msc`
+si **Visor Catastral - Villa de Merlo** figura en marcha: si es así, no hace
+falta abrir nada más, el visor ya está disponible en
+<http://localhost:8002>.
 
 ### "Se abre en Firefox y lo quiero en Chrome"
 
@@ -165,13 +170,8 @@ Edge: esto es una preferencia, no un requisito.
 
 ### "El navegador no se abre solo"
 
-Abrirlo a mano y entrar a `http://localhost:` seguido del **número de puerto que
-dice la ventana negra**, en el renglón `Puerto:`. Suele ser 8001.
-
-> **Ojo con el 8000.** Ese es el puerto del **visor anterior**. Si se entra ahí
-> se abre el de siempre, con los problemas de siempre, y parece que la
-> actualización no hubiera servido para nada. El número correcto es el que
-> figura en la ventana negra de este visor.
+Abrirlo a mano y entrar a <http://localhost:8002>. Es siempre ese número,
+corra el visor como servicio o en modo manual.
 
 ### "El mapa se ve gris, no aparecen las calles"
 
@@ -212,6 +212,10 @@ Baja la última versión y la aplica sola. **No toca la configuración de la bas
 ni los componentes instalados**, así que al terminar el visor funciona sin
 volver a configurar nada.
 
+Si el visor está instalado como servicio, `ACTUALIZAR.bat` lo detiene antes de
+reemplazar los archivos y lo vuelve a arrancar solo al terminar, ya con la
+versión nueva funcionando. No hay que reiniciar nada a mano.
+
 Al final muestra qué versión había antes y cuál quedó.
 
 ### Cómo saber qué versión está corriendo
@@ -236,50 +240,12 @@ equipo no la tiene, hay que hacerlo a mano desde otra máquina:
 
 ---
 
-## Convive con el visor anterior
-
-Este visor **no reemplaza ni toca** al que ya estaba funcionando. Usan puertos
-distintos, así que pueden estar abiertos al mismo tiempo.
-
-El visor anterior usa el **8000**. Este busca uno libre al arrancar —8001, 8002,
-8003…— y **nunca prueba el 8000**. Cuál le tocó lo dice al abrir:
-
-```
-Puerto: 8001
-```
-
-y también en la línea `Si no se abre, entrar a: http://localhost:8001`. Si en
-esa computadora el 8001 ya está ocupado por otro programa, toma el siguiente
-libre y sigue funcionando igual.
-
-Eso es a propósito. Mientras este visor se esté probando, **el anterior tiene
-que seguir disponible**: si algo acá no funciona, en la Municipalidad se sigue
-trabajando con el de siempre sin depender de que esto ande.
-
-Por eso:
-
-- **No borrar la instalación anterior** hasta que esté confirmado, después de un
-  tiempo de uso real, que este visor hace todo lo que hacía aquel.
-- `INICIAR.bat` **no cierra ningún otro programa**. Si el puerto que iba a usar
-  está ocupado, busca otro en vez de reclamarlo.
-- Ninguna de las herramientas de este programa modifica la instalación anterior.
-
-### Volver atrás
-
-No hace falta desinstalar nada: abrir el visor anterior como siempre. Los dos
-consultan la misma base de datos, en modo lectura, así que usar uno u otro no
-cambia ningún dato.
-
----
-
 ## Qué NO hace este visor
 
 Conviene que quede claro para no esperar de él algo que no hace:
 
 - **No modifica nada.** Solo lee. No puede cambiar, borrar ni cargar datos en
   el sistema de catastro.
-- **No toca el visor anterior.** Ni sus archivos, ni su configuración, ni lo
-  cierra mientras está en uso.
 - **No funciona fuera de la red municipal.** El mapa se ve, los datos no.
 - **No reemplaza al sistema de catastro.** Es una forma de consultarlo sobre el
   mapa.

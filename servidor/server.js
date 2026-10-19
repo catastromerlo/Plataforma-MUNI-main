@@ -43,7 +43,12 @@ const path = require('path');
 const sql = require('mssql');
 
 const app = express();
-const PORT = process.env.PORT || 8000;
+
+// Puerto fijo del visor: 8002. En la practica casi nunca se usa este valor por
+// defecto, porque tanto el Servicio de Windows (via NSSM) como INICIAR.bat
+// definen PORT por su cuenta antes de arrancar Node. Queda como red de
+// seguridad para cuando alguien ejecuta "node server.js" a mano.
+const PORT = process.env.PORT || 8002;
 
 // ============================================================================
 // VERSION DEL PROGRAMA
@@ -456,7 +461,7 @@ app.use(helmet({
     // de carteles "Access blocked - Referer is required".
     //
     // strict-origin-when-cross-origin hace que se mande solamente el
-    // origen (http://localhost:8000), nunca la dirección completa ni los
+    // origen (http://localhost:8002), nunca la dirección completa ni los
     // parámetros de una consulta. Alcanza para OpenStreetMap y no filtra
     // qué parcela se estaba mirando.
     // ------------------------------------------------------------------

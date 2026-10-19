@@ -3,7 +3,8 @@
 #  Informe de diagnostico
 # -----------------------------------------------------------------------------
 #  Genera un informe con el estado real de ESTA instalacion: que version tiene,
-#  desde que carpeta se ejecuta, que contienen los archivos y si los servidores
+#  desde que carpeta se ejecuta, que contienen los archivos, si el visor esta
+#  corriendo (como Servicio de Windows o abierto a mano) y si los servidores
 #  de mapas responden desde esta red.
 #
 #  Sirve para dejar de adivinar. Cuando algo "sigue sin andar" despues de
@@ -21,6 +22,16 @@ $lineas  = @()
 
 function Agregar($texto) { $script:lineas += $texto }
 
+# El informe se arma completo en memoria y recien se muestra al final. Sin
+# estos avisos, la ventana queda negra y en blanco todo el tiempo que tarda
+# (revisar el disco y probar los servidores de mapas puede llevar uno o dos
+# minutos), y no hay forma de saber si esta trabajando o si se colgo.
+function Avance($texto) { Write-Host "  $texto" }
+Write-Host ""
+Avance "Generando el informe. Puede tardar uno o dos minutos: se revisa el"
+Avance "disco en busca de copias del programa y se prueban los mapas."
+Write-Host ""
+
 Agregar "============================================================"
 Agregar " INFORME DE DIAGNOSTICO - VISOR CATASTRAL"
 Agregar " Generado el $(Get-Date -Format 'dd/MM/yyyy HH:mm')"
@@ -28,6 +39,7 @@ Agregar "============================================================"
 Agregar ""
 
 # --- 1. Que instalacion es esta ----------------------------------------------
+Avance "[1/5] Identificando esta instalacion..."
 Agregar "1. ESTA INSTALACION"
 Agregar "   Carpeta: $raiz"
 
@@ -39,6 +51,7 @@ Agregar ""
 # --- 2. Contenido real de los archivos ---------------------------------------
 # No alcanza con mirar la version: si alguien reemplazo unos archivos y otros
 # no, la version puede ser nueva y el codigo viejo. Se revisa el contenido.
+Avance "[2/5] Revisando el contenido de los archivos..."
 Agregar "2. QUE CONTIENEN LOS ARCHIVOS"
 
 function Revisar($ruta, $marca, $descripcion) {
@@ -65,6 +78,7 @@ Agregar ""
 # --- 3. Hay mas de una instalacion? ------------------------------------------
 # La causa mas comun de "actualice y sigue igual" es que se actualizo una
 # carpeta y se ejecuta otra.
+Avance "[3/5] Buscando otras copias del programa en el disco (puede tardar)..."
 Agregar "3. OTRAS COPIAS DEL PROGRAMA EN ESTA COMPUTADORA"
 $encontradas = @()
 foreach ($base in @("C:\", "$env:USERPROFILE\Desktop", "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Documents")) {
@@ -90,37 +104,78 @@ if ($encontradas.Count -le 1) {
 Agregar ""
 
 # --- 4. El servidor esta corriendo? ------------------------------------------
+# El visor usa siempre el puerto 8002, tanto si corre como Servicio de Windows
+# (lo normal, lo deja instalado INSTALAR.bat) como si alguien lo abrio a mano
+# con INICIAR.bat. Por eso se miran dos cosas por separado: el servicio, y si
+# el puerto responde. La combinacion de las dos dice que esta pasando.
+Avance "[4/5] Revisando el servidor..."
 Agregar "4. SERVIDOR"
-# INICIAR.bat elige el primer puerto libre de esta lista, asi que hay que
-# probarlos todos: no hay un numero fijo. El 8000 se prueba aparte y solo para
-# avisar, porque ese es el del VISOR ANTERIOR.
-$encontrado = $false
-foreach ($p in @(8001, 8002, 8003, 8010, 8020, 8080, 8090, 3000, 3001, 5000)) {
-    try {
-        $r = Invoke-WebRequest -Uri "http://localhost:$p/health" -UseBasicParsing -TimeoutSec 3
-        Agregar "   Responde en http://localhost:$p"
-        Agregar "   $($r.Content)"
-        $encontrado = $true
-        break
-    } catch { }
-}
-if (-not $encontrado) {
-    Agregar "   No responde en ningun puerto (el visor no esta abierto en este momento)."
-    Agregar "   Para incluir este dato: abrir INICIAR.bat y volver a ejecutar el diagnostico."
+$puerto = 8002
+$nombreServicio = "VisorCatastralMerlo"
+
+$servicio = Get-Service -Name $nombreServicio -ErrorAction SilentlyContinue
+$estado   = if ($servicio) { [string]$servicio.Status } else { "" }
+if ($servicio) {
+    Agregar "   Servicio de Windows: instalado, estado $estado"
+} else {
+    Agregar "   Servicio de Windows: NO instalado en esta computadora"
 }
 
+$responde = $false
 try {
-    Invoke-WebRequest -Uri "http://localhost:8000/" -UseBasicParsing -TimeoutSec 3 | Out-Null
-    Agregar ""
-    Agregar "   Nota: el puerto 8000 tambien esta ocupado. Ese es el VISOR ANTERIOR."
-    Agregar "   Es correcto que siga funcionando. Pero si al abrir localhost:8000 se ve"
-    Agregar "   el visor de siempre, no es que la actualizacion no haya servido: hay que"
-    Agregar "   entrar al puerto que dice la ventana negra de este visor."
-} catch { }
+    $r = Invoke-WebRequest -Uri "http://localhost:$puerto/health" -UseBasicParsing -TimeoutSec 3
+    $responde = $true
+    Agregar "   Puerto ${puerto}: responde en http://localhost:$puerto"
+    Agregar "   $($r.Content)"
+} catch {
+    Agregar "   Puerto ${puerto}: no responde"
+}
+
+Agregar ""
+if ($servicio -and $estado -eq "Running" -and $responde) {
+    Agregar "   Diagnostico: todo en orden. El visor corre como servicio y responde."
+} elseif ($servicio -and $estado -eq "Running") {
+    Agregar "   Diagnostico: el servicio figura en marcha pero el puerto $puerto no"
+    Agregar "   responde. Puede estar arrancando todavia (esperar un minuto y repetir"
+    Agregar "   el diagnostico) o haberse trabado: ver el final de servicio-error.log"
+    Agregar "   mas abajo."
+} elseif ($servicio -and $responde) {
+    Agregar "   Diagnostico: el visor responde, pero NO por el servicio (que esta"
+    Agregar "   $estado): alguien lo abrio a mano con INICIAR.bat. Funciona mientras esa"
+    Agregar "   ventana negra siga abierta. Para dejarlo fijo: cerrar esa ventana e"
+    Agregar "   iniciar el servicio (services.msc, o net start $nombreServicio como"
+    Agregar "   administrador)."
+} elseif ($servicio) {
+    Agregar "   Diagnostico: el servicio esta $estado y nada responde en el puerto $puerto."
+    Agregar "   Para levantarlo: services.msc -> Visor Catastral - Villa de Merlo ->"
+    Agregar "   Iniciar, o desde una consola como administrador:"
+    Agregar "       net start $nombreServicio"
+    Agregar "   Mientras tanto se puede usar INICIAR.bat (modo manual)."
+} elseif ($responde) {
+    Agregar "   Diagnostico: el visor responde, abierto a mano con INICIAR.bat (sin"
+    Agregar "   servicio). Funciona mientras esa ventana negra siga abierta. Para que"
+    Agregar "   arranque solo con la computadora: INSTALAR.bat como administrador."
+} else {
+    Agregar "   Diagnostico: el visor no esta corriendo en este momento."
+    Agregar "   Abrir INICIAR.bat, o correr INSTALAR.bat como administrador para dejarlo"
+    Agregar "   instalado como servicio (arranca solo con la computadora)."
+}
+
+# Si el servicio existe pero el puerto no responde, el motivo casi siempre esta
+# en el final del registro de errores del servicio.
+if ($servicio -and -not $responde) {
+    $logError = Join-Path $raiz "servidor\logs\servicio-error.log"
+    if (Test-Path $logError) {
+        Agregar ""
+        Agregar "   Ultimas lineas de servidor\logs\servicio-error.log:"
+        Get-Content $logError -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Agregar "     $_" }
+    }
+}
 Agregar ""
 
 # --- 5. Los servidores de mapas responden desde esta red? --------------------
 # Un firewall municipal puede dejar pasar unos dominios y bloquear otros.
+Avance "[5/5] Probando los servidores de mapas (tarda si la red los bloquea)..."
 Agregar "5. SERVIDORES DE MAPAS (desde esta red)"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 # Las teselas de prueba caen sobre Villa de Merlo. Ninguno de estos servicios

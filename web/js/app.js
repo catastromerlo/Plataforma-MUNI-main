@@ -73,24 +73,22 @@
         //   red: es el que más chances tiene de fallar en cualquier lado.
         // --------------------------------------------------------------------
         const PROVEEDORES_CALLE = [
-
             {
-                nombre: 'OpenStreetMap',
+                 nombre: 'OpenStreetMap',
                 url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                 opciones: { subdomains: 'abc', attribution: ATRIB_OSM },
                 tipo: 'raster'
-            },
-
-            {
-                nombre: 'Esri',
-                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-                opciones: { attribution: 'Esri' }
             },
             {
                 nombre: 'CARTO',
                 url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
                 opciones: { subdomains: 'abcd', attribution: ATRIB_OSM + ' &copy; <a href="https://carto.com/attributions">CARTO</a>' }
-            }     
+            },
+            {
+                nombre: 'OpenStreetMap',
+                url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                opciones: { subdomains: 'abc', attribution: ATRIB_OSM }
+            }
         ];
 
         let proveedorActual = 0;
@@ -247,6 +245,7 @@
         const barriosLayer = L.featureGroup().addTo(map); 
         const barriosLabelsLayer = L.layerGroup(); 
         const edificadoLayer = L.featureGroup(); 
+        const ejidoLayer = L.featureGroup();
         
         let currentFeatureProps = null; 
         let selectedLayer = null; 
@@ -2560,6 +2559,11 @@ ${p._DEMO ? `
                 archivo: 'Edificado2026.json',
                 obligatorio: false,
                 descripcion: 'superficie edificada'
+            },
+            ejido: {
+                archivo: 'MerloEjidoMunicipal.json',
+                obligatorio: false,
+                descripcion: 'límite del ejido municipal'
             }
         };
 
@@ -2632,6 +2636,18 @@ ${p._DEMO ? `
                 const dataE = await traerDelPlano('edificado');
                 if (dataE) {
                     L.geoJSON(dataE, { style: { color: '#dc2626', weight: 1.2, fillColor: '#ef4444', fillOpacity: 0.25 } }).addTo(edificadoLayer);
+                }
+
+                // Límite del ejido municipal: una sola línea de borde, SIN relleno
+                // (el polígono cubre todo el municipio y rellenarlo teñiría el mapa
+                // entero), discontinua y en tono marrón para que no se confunda con
+                // los barrios (índigo). Solo se dibuja; no tiene ficha ni clic.
+                const dataEj = await traerDelPlano('ejido');
+                if (dataEj) {
+                    L.geoJSON(dataEj, {
+                        style: { color: '#92400e', weight: 3, fillOpacity: 0, dashArray: '12, 6' },
+                        interactive: false
+                    }).addTo(ejidoLayer);
                 }
 
                 const data = await traerDelPlano('parcelas');
@@ -2719,6 +2735,7 @@ ${p._DEMO ? `
                 if (dataM) manzanasData = dataM.features || [];
 
                 const overlays = {
+                    "<span class='text-sm font-bold text-slate-700 ml-1'>Ejido Municipal</span>": ejidoLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Barrios</span>": barriosLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Plano Parcelario</span>": geojsonLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Edificado 2026</span>": edificadoLayer,

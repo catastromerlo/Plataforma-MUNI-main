@@ -10,7 +10,8 @@
      procesarParcela() ..... decide qué mostrar (parcela simple o propiedad horizontal)
      imprimirFicha() ....... la PLANCHETA catastral (el PDF con el mapa)
      imprimirLibreDeuda() .. la constancia del Juzgado de Faltas
-     aplicarFiltros() ...... búsqueda por superficie / zona / barrio
+     aplicarFiltros() ...... búsqueda por filtros combinados de parcelas
+     buscarComercios() ..... búsqueda por rubro comercial
      paintMapFromFilter() .. pinta en el mapa el resultado de un filtro
      loadData() ............ carga los archivos del plano al arrancar
      const PLANO ........... LOS NOMBRES DE LOS ARCHIVOS DEL PLANO van acá
@@ -444,6 +445,7 @@
         //   padrón, esas parcelas quedarían a medio pintar.
         // ====================================================================
         const indicePadrones = new Map();
+        const indiceNomenclaturas = new Map();
         let parcelasPintadas = [];
 
         // Resultado del último pintado, para poder explicarlo en pantalla:
@@ -488,6 +490,19 @@
             if (!clave) return;
             let grupo = indicePadrones.get(clave);
             if (!grupo) { grupo = []; indicePadrones.set(clave, grupo); }
+            grupo.push(layer);
+        }
+
+        function normalizarNomenclatura(valor) {
+            return String(valor == null ? '' : valor).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        }
+
+        function registrarEnNomenclatura(feature, layer) {
+            const props = feature.properties || {};
+            const clave = normalizarNomenclatura(props.NOMENCLA || props.NOMENCLATURA || props.NOMENCLATU);
+            if (!clave) return;
+            let grupo = indiceNomenclaturas.get(clave);
+            if (!grupo) { grupo = []; indiceNomenclaturas.set(clave, grupo); }
             grupo.push(layer);
         }
 
@@ -2032,41 +2047,62 @@ ${p._DEMO ? `
             modal.classList.remove('flex');
         }
 
-        function abrirModalResultados(titulo, data, columnaValor, configPintado, tipoFiltro) {
-            document.getElementById('filter-modal-title').innerHTML = `<span class="material-icons text-xl">manage_search</span> ${titulo}`;
+        function abrirModalResultados(titulo, data, columnaValor, configPintado, tipoFiltro, opciones = {}) {
+            document.getElementById('filter-modal-title').textContent = titulo;
             document.getElementById('filter-modal-count').innerText = `${data.length} Registros Encontrados`;
-            document.getElementById('filter-modal-value-col').innerText = columnaValor;
+
+            const columnas = opciones.columnas || [
+                { clave: 'PADRON', titulo: 'Padrón / Nro Renta' },
+                { clave: 'NOMENCLA', titulo: 'Nomenclatura' },
+                { clave: columnaValor, titulo: columnaValor }
+            ];
+            const encabezado = document.getElementById('filter-modal-thead');
+            const filaEncabezado = document.createElement('tr');
+            for (const columna of columnas) {
+                const celda = document.createElement('th');
+                celda.className = `px-5 py-3 font-bold uppercase tracking-widest ${columna.clave === columnaValor ? 'text-emerald-700' : 'text-slate-500'}`;
+                celda.textContent = columna.titulo;
+                filaEncabezado.appendChild(celda);
+            }
+            encabezado.replaceChildren(filaEncabezado);
 
             const tbody = document.getElementById('filter-modal-tbody');
-            tbody.innerHTML = '';
-            
+            tbody.replaceChildren();
+
             if (data.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" class="px-4 py-8 text-center text-slate-400 font-bold uppercase tracking-widest">No se encontraron resultados en la Base de Datos</td></tr>`;
+                const filaVacia = document.createElement('tr');
+                const celdaVacia = document.createElement('td');
+                celdaVacia.colSpan = columnas.length;
+                celdaVacia.className = 'px-4 py-8 text-center text-slate-400 font-bold uppercase tracking-widest';
+                celdaVacia.textContent = 'No se encontraron resultados en la Base de Datos';
+                filaVacia.appendChild(celdaVacia);
+                tbody.appendChild(filaVacia);
             } else {
                 const previewData = data.slice(0, 100);
-                let rowsHtml = '';
-                previewData.forEach(row => {
-                    const val = row[columnaValor] || '-';
-                    rowsHtml += `
-                        <tr class="hover:bg-slate-50 transition-colors">
-                            <td class="px-5 py-2 font-mono font-bold">${row.PADRON || '-'}</td>
-                            <td class="px-5 py-2 font-mono">${row.NOMENCLA || '-'}</td>
-                            <td class="px-5 py-2 font-black text-emerald-600 bg-emerald-50/30">${val}</td>
-                        </tr>
-                    `;
-                });
+                for (const row of previewData) {
+                    const fila = document.createElement('tr');
+                    fila.className = 'hover:bg-slate-50 transition-colors';
+                    for (const columna of columnas) {
+                        const celda = document.createElement('td');
+                        celda.className = columna.clave === columnaValor
+                            ? 'px-5 py-2 font-black text-emerald-600 bg-emerald-50/30'
+                            : 'px-5 py-2 font-mono';
+                        const valor = row[columna.clave];
+                        celda.textContent = valor == null || valor === '' ? '-' : String(valor);
+                        fila.appendChild(celda);
+                    }
+                    tbody.appendChild(fila);
+                }
 
                 if (data.length > 100) {
-                    rowsHtml += `
-                        <tr>
-                            <td colspan="3" class="px-5 py-4 text-center text-slate-500 font-bold text-[10px] uppercase bg-slate-100 tracking-widest shadow-inner">
-                                ... y ${data.length - 100} parcelas más ocultas en la tabla por rendimiento.<br>
-                                <span class="text-emerald-700 mt-1 block">Haga click en "Pintar en Mapa" para visualizar la totalidad.</span>
-                            </td>
-                        </tr>
-                    `;
+                    const filaAviso = document.createElement('tr');
+                    const celdaAviso = document.createElement('td');
+                    celdaAviso.colSpan = columnas.length;
+                    celdaAviso.className = 'px-5 py-4 text-center text-slate-500 font-bold text-[10px] uppercase bg-slate-100 tracking-widest shadow-inner';
+                    celdaAviso.textContent = `... y ${data.length - 100} ${opciones.nombrePlural || 'parcelas'} más ocultas en la tabla por rendimiento. Haga click en "Pintar en Mapa" para visualizar la totalidad.`;
+                    filaAviso.appendChild(celdaAviso);
+                    tbody.appendChild(filaAviso);
                 }
-                tbody.innerHTML = rowsHtml;
             }
 
             // El cartel de "cargando" se apaga SIEMPRE, tanto si el pintado
@@ -2074,6 +2110,7 @@ ${p._DEMO ? `
             // nunca: aunque el pintado hubiera terminado, la pantalla quedaba
             // tapada por el cartel y el visor parecía colgado.
             const btnPaint = document.getElementById('btn-paint-map');
+            btnPaint.innerHTML = `<span class="material-icons text-sm">format_paint</span> ${opciones.etiquetaPintar || 'Pintar Parcelas en Mapa'}`;
             btnPaint.onclick = () => {
                 closeFilterModal();
                 const cartel = document.getElementById('loader');
@@ -2090,7 +2127,8 @@ ${p._DEMO ? `
                         // por algo dejó de estarlo (por ejemplo, si se limpiaron
                         // los filtros con el listado abierto).
                         if (datosPintados !== data) {
-                            paintMapFromFilter(data, configPintado);
+                            if (opciones.pintar) opciones.pintar(data);
+                            else paintMapFromFilter(data, configPintado);
                         }
                         encuadrarPintado();
                     } catch (error) {
@@ -2163,6 +2201,44 @@ ${p._DEMO ? `
             }
 
             return pintadas.length;
+        }
+
+        function pintarComerciosEnMapa(data, config) {
+            const resaltado = {
+                color: config.color,
+                fillColor: config.fillColor,
+                weight: config.weight,
+                fillOpacity: config.fillOpacity
+            };
+
+            limpiarPintadoFiltro();
+
+            const pintadas = [];
+            const conjuntoPintadas = new Set();
+            const sinDibujo = [];
+            for (const comercio of data) {
+                const nomenclatura = normalizarNomenclatura(comercio.NOMENCLATURA);
+                if (!nomenclatura) {
+                    sinDibujo.push(comercio.NOMENCLATURA || '(sin nomenclatura)');
+                    continue;
+                }
+                const capas = indiceNomenclaturas.get(nomenclatura);
+                if (!capas) {
+                    sinDibujo.push(comercio.NOMENCLATURA);
+                    continue;
+                }
+                for (const capa of capas) {
+                    if (!capa.setStyle || conjuntoPintadas.has(capa)) continue;
+                    capa.setStyle(resaltado);
+                    conjuntoPintadas.add(capa);
+                    pintadas.push(capa);
+                }
+            }
+
+            parcelasPintadas = pintadas;
+            ultimoPintado = { pintadas: pintadas.length, sinDibujo };
+            datosPintados = data;
+            return { pintadas: pintadas.length, sinDibujo };
         }
 
         /**
@@ -2497,6 +2573,122 @@ ${p._DEMO ? `
             }
         }
 
+        function mostrarEstadoComercio(mensaje, esError = false) {
+            const resumen = document.getElementById('comercio-resumen');
+            resumen.textContent = mensaje;
+            resumen.classList.remove('hidden', 'text-red-700', 'text-slate-500');
+            resumen.classList.add(esError ? 'text-red-700' : 'text-slate-500');
+        }
+
+        async function cargarRubrosComercio() {
+            const select = document.getElementById('filtro-comercio-rubro');
+            const boton = document.getElementById('buscar-comercio');
+            mostrarEstadoComercio('Cargando rubros comerciales...');
+
+            try {
+                const respuesta = await fetch(CONFIG.url('api/comercios/opciones'));
+                if (!respuesta.ok) {
+                    const detalle = await respuesta.json().catch(() => ({}));
+                    throw new Error(detalle.error || 'No se pudieron cargar los rubros comerciales.');
+                }
+
+                const opciones = await respuesta.json();
+                const rubros = Array.isArray(opciones.rubros) ? opciones.rubros : [];
+                select.replaceChildren(new Option('Seleccione un rubro', ''));
+                for (const rubro of rubros) {
+                    const opcion = document.createElement('option');
+                    opcion.value = rubro;
+                    opcion.textContent = rubro;
+                    select.appendChild(opcion);
+                }
+
+                select.disabled = rubros.length === 0;
+                boton.disabled = rubros.length === 0;
+                mostrarEstadoComercio(
+                    rubros.length > 0
+                        ? `${rubros.length} rubros disponibles. Seleccione uno para buscar.`
+                        : 'La base no devolvió rubros comerciales.'
+                );
+            } catch (error) {
+                console.error('❌ Error al cargar los rubros comerciales:', error);
+                select.replaceChildren(new Option('Rubros no disponibles', ''));
+                select.disabled = true;
+                boton.disabled = true;
+                mostrarEstadoComercio(error.message || 'No se pudieron cargar los rubros comerciales.', true);
+            }
+        }
+
+        async function buscarComercios() {
+            const select = document.getElementById('filtro-comercio-rubro');
+            const rubro = select.value.trim();
+            if (!rubro) {
+                mostrarEstadoComercio('Seleccione un rubro comercial para buscar.', true);
+                return;
+            }
+
+            document.getElementById('loader').style.display = 'flex';
+            try {
+                const params = new URLSearchParams({ rubro });
+                const respuesta = await fetch(CONFIG.url(`api/comercios?${params.toString()}`));
+                if (!respuesta.ok) {
+                    const detalle = await respuesta.json().catch(() => ({}));
+                    throw new Error(detalle.error || 'No se pudieron consultar los comercios.');
+                }
+
+                const tope = respuesta.headers.get('X-Resultado-Recortado');
+                const datos = await respuesta.json();
+                const config = { color: '#ea580c', fillColor: '#ea580c', weight: 2, fillOpacity: 0.5 };
+                const pintado = pintarComerciosEnMapa(datos, config);
+                const avisos = [];
+                if (tope) avisos.push(`La búsqueda alcanzó el límite de ${tope} resultados.`);
+                if (pintado.sinDibujo.length > 0) {
+                    avisos.push(`${pintado.sinDibujo.length} comercio(s) no tienen una parcela con nomenclatura coincidente en el plano.`);
+                }
+
+                mostrarEstadoComercio(
+                    `${datos.length} comercio(s) encontrado(s)` +
+                    (avisos.length ? ` · ${avisos.join(' ')}` : '')
+                );
+                mostrarAvisosDelFiltro([]);
+                abrirModalResultados(
+                    `Comercios · ${rubro}`,
+                    datos,
+                    'CTA_COMERCIO',
+                    config,
+                    'comercio',
+                    {
+                        columnas: [
+                            { clave: 'NOMENCLATURA', titulo: 'Nomenclatura' },
+                            { clave: 'CTA_COMERCIO', titulo: 'CTA Comercio' },
+                            { clave: 'CODIGO_RUBRO', titulo: 'Código rubro' },
+                            { clave: 'RUBRO', titulo: 'Rubro' }
+                        ],
+                        nombrePlural: 'comercios',
+                        etiquetaPintar: 'Pintar Comercios en Mapa',
+                        pintar: (resultados) => pintarComerciosEnMapa(resultados, config)
+                    }
+                );
+            } catch (error) {
+                console.error('❌ Error en la búsqueda de comercios:', error);
+                mostrarEstadoComercio(error.message || 'No se pudieron consultar los comercios.', true);
+            } finally {
+                document.getElementById('loader').style.display = 'none';
+            }
+        }
+
+        function limpiarBusquedaComercio() {
+            document.getElementById('filtro-comercio-rubro').value = '';
+            document.getElementById('comercio-resumen').classList.add('hidden');
+            closeFilterModal();
+            mostrarAvisosDelFiltro([]);
+            limpiarResaltadoManzana();
+            limpiarPintadoFiltro();
+            if (selectedLayer && selectedLayer.setStyle) {
+                try { selectedLayer.setStyle(ESTILO_BASE); } catch (e) { /* capa ya removida */ }
+            }
+            selectedLayer = null;
+        }
+
 
         // ====================================================================
         // ARCHIVOS DEL PLANO
@@ -2655,11 +2847,12 @@ ${p._DEMO ? `
                     L.geoJSON(data, {
                         style: { color: '#13f8bc', weight: 0.8, fillOpacity: 0.05, fillColor: '#10abb9' },
                         onEachFeature: (f, l) => {
-                            // Índices de manzanas y de padrones: se arman
+                            // Índices de manzanas, padrones y nomenclaturas: se arman
                             // mientras Leaflet crea las capas, sin recorrer
                             // todo de nuevo después.
                             registrarEnManzana(f, l);
                             registrarEnPadron(f, l);
+                            registrarEnNomenclatura(f, l);
 
                             // --- EVENTO CLIC EN PARCELA REFACTORIZADO (SOPORTE PARA PH) ---
                             l.on('click', async (e) => {
@@ -2929,4 +3122,5 @@ ${p._DEMO ? `
             // Las listas de zonificación y barrio se llenan aparte: si la base
             // no responde, el mapa igual carga y los demás filtros funcionan.
             cargarOpcionesFiltro();
+            cargarRubrosComercio();
         };

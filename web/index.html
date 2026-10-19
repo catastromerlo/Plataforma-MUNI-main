@@ -190,6 +190,37 @@
                         <div id="filtro-avisos" class="hidden px-4 pb-4 space-y-2"></div>
                     </div>
                 </div>
+
+                <div class="filter-group mb-3">
+                    <button onclick="toggleFilter('comercio-panel-content', 'icon-comercio')" class="w-full flex items-center justify-between bg-slate-100 hover:bg-slate-200 px-3 py-2 border border-slate-200 transition-colors focus:outline-none">
+                        <div class="flex items-center gap-2">
+                            <span class="material-icons text-slate-500 text-lg">storefront</span>
+                            <h2 class="text-[10px] font-black text-slate-600 uppercase tracking-widest">Buscar Comercio</h2>
+                        </div>
+                        <span id="icon-comercio" class="material-icons text-slate-500 text-sm transition-transform duration-300">expand_more</span>
+                    </button>
+
+                    <div id="comercio-panel-content" class="hidden bg-slate-50 border border-t-0 border-slate-200 rounded-none shadow-sm">
+                        <div class="px-4 pt-4 pb-3">
+                            <label for="filtro-comercio-rubro" class="text-[8px] font-black text-slate-400 uppercase block mb-1.5">Rubro comercial</label>
+                            <select id="filtro-comercio-rubro" disabled
+                                class="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-none text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                                <option value="">Cargando rubros...</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2 px-4 pb-4 pt-1 border-t border-slate-200">
+                            <button id="buscar-comercio" onclick="buscarComercios()" disabled
+                                class="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors shadow-lg">
+                                Buscar
+                            </button>
+                            <button onclick="limpiarBusquedaComercio()"
+                                class="bg-slate-300 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors">
+                                Limpiar
+                            </button>
+                        </div>
+                        <div id="comercio-resumen" role="status" aria-live="polite" class="hidden text-[9px] font-bold text-slate-500 uppercase text-center px-4 pb-4"></div>
+                    </div>
+                </div>
             </div>
         </aside>
 
@@ -337,13 +368,7 @@
                 <!-- Modal Body (Tabla) -->
                 <div class="modal-body overflow-y-auto flex-1 bg-white p-0 modal-scroll relative">
                     <table class="w-full text-left text-xs text-slate-700">
-                        <thead class="bg-slate-50 sticky top-0 border-b border-slate-200 z-10 shadow-sm">
-                            <tr>
-                                <th class="px-5 py-3 font-bold uppercase tracking-widest text-slate-500">Padrón / Nro Renta</th>
-                                <th class="px-5 py-3 font-bold uppercase tracking-widest text-slate-500">Nomenclatura</th>
-                                <th class="px-5 py-3 font-bold uppercase tracking-widest text-emerald-700" id="filter-modal-value-col">Valor</th>
-                            </tr>
-                        </thead>
+                        <thead id="filter-modal-thead" class="bg-slate-50 sticky top-0 border-b border-slate-200 z-10 shadow-sm"></thead>
                         <tbody id="filter-modal-tbody" class="divide-y divide-slate-100">
                         </tbody>
                     </table>

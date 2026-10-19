@@ -30,6 +30,7 @@
 //   /api/catastro     la ficha de UNA parcela: dueño, superficie, deuda, etc.
 //   /api/filtrar      búsqueda por superficie / zona / barrio (los filtros)
 //   /api/opciones     las listas de zonas y barrios que existen en la base
+//   /api/comercios/*  rubros y resultados de comercios del catastro
 //   /api/superficie   /api/edificacion   búsquedas sueltas más viejas
 // ============================================================================
 
@@ -960,6 +961,70 @@ app.get('/api/filtrar', async (req, res) => {
     } catch (err) {
         console.error('❌ Error en la búsqueda combinada:', err);
         res.status(500).json({ error: 'Error al consultar la base municipal.' });
+    }
+});
+
+// ============================================================================
+// ENDPOINTS: BÚSQUEDA DE COMERCIOS POR RUBRO
+// ----------------------------------------------------------------------------
+// La vista municipal aporta los datos comerciales; la ubicación se resuelve
+// en el navegador haciendo coincidir NOMENCLATURA con los polígonos GeoJSON.
+// ============================================================================
+app.get('/api/comercios/opciones', async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    try {
+        const resultado = await activePool.request().query(`
+            SELECT DISTINCT LTRIM(RTRIM(RUBRO)) AS RUBRO
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_COMERCIO
+            WHERE RUBRO IS NOT NULL AND LTRIM(RTRIM(RUBRO)) <> ''
+            ORDER BY RUBRO
+        `);
+        res.json({ rubros: resultado.recordset.map((fila) => fila.RUBRO) });
+    } catch (err) {
+        console.error('❌ Error al cargar los rubros comerciales:', err);
+        res.status(500).json({ error: 'No se pudieron cargar los rubros comerciales.' });
+    }
+});
+
+app.get('/api/comercios', async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
+    }
+
+    const rubro = String(req.query.rubro || '').trim().slice(0, 120);
+    if (!rubro) {
+        return res.status(400).json({ error: 'Debe seleccionar un rubro comercial.' });
+    }
+
+    try {
+        const request = activePool.request();
+        request.input('rubro', sql.VarChar(120), rubro);
+        request.input('maxRows', sql.Int, MAX_ROWS);
+        const resultado = await request.query(`
+            SELECT TOP (@maxRows)
+                LTRIM(RTRIM(NOMENCLATURA)) AS NOMENCLATURA,
+                CTA_COMERCIO,
+                CODIGO_RUBRO,
+                LTRIM(RTRIM(RUBRO)) AS RUBRO
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_COMERCIO
+            WHERE NOMENCLATURA IS NOT NULL
+              AND LTRIM(RTRIM(NOMENCLATURA)) <> ''
+              AND UPPER(LTRIM(RTRIM(RUBRO))) = UPPER(@rubro)
+            ORDER BY NOMENCLATURA, CTA_COMERCIO
+        `);
+
+        if (resultado.recordset.length >= MAX_ROWS) {
+            res.setHeader('X-Resultado-Recortado', String(MAX_ROWS));
+        }
+        res.json(resultado.recordset);
+    } catch (err) {
+        console.error('❌ Error al buscar comercios por rubro:', err);
+        res.status(500).json({ error: 'No se pudieron consultar los comercios.' });
     }
 });
 

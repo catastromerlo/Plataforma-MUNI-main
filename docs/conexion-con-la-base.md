@@ -40,9 +40,15 @@ base no es accesible desde internet.
 | **Zonificación** | **base** | `VI_CPAR_FRENTES.CONCEPTO` |
 | **N.º de cuenta** | **base** | `VI_GIS_ININ_CONTRIBUYENTES.CTA` |
 | **Contribuyente** | **base** | `VI_GIS_ININ_CONTRIBUYENTES.CONTRIBUYENTE` |
+| **Comercios por rubro** | **base** | `VI_GIS_CATASTRO_COMERCIO.RUBRO` |
+| **Nomenclatura del comercio** | **base** | `VI_GIS_CATASTRO_COMERCIO.NOMENCLATURA` |
+| **Cuenta del comercio** | **base** | `VI_GIS_CATASTRO_COMERCIO.CTA_COMERCIO` |
+| **Código del rubro** | **base** | `VI_GIS_CATASTRO_COMERCIO.CODIGO_RUBRO` |
 
 Los filtros por superficie, frente, estado, zona y barrio **dependen enteramente
 de la base**: el visor no puede calcular ninguno de esos valores por su cuenta.
+La búsqueda de comercios también consulta la base; sus resultados se pintan
+cuando `NOMENCLATURA` coincide con la nomenclatura del polígono del GeoJSON.
 
 ---
 
@@ -91,7 +97,7 @@ problema se ve, en lugar de quedar tapado por datos inventados.
 node herramientas/probar-conexion.js
 ```
 
-Confirma las credenciales, que existan las cuatro vistas y que tengan las
+Confirma las credenciales, que existan las vistas y que tengan las
 columnas que el código espera. Si falta una columna, la ficha muestra ese campo
 vacío **sin dar ningún error**: por eso conviene mirarlo.
 

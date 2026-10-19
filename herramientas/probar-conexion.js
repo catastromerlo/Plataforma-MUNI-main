@@ -92,14 +92,15 @@ try {
     process.exit(2);
 }
 
-// Las 4 vistas que consulta /api/catastro, y las columnas que el código espera
-// de cada una. Si algo de esto cambia en la base, la ficha se rompe en
-// silencio: los campos aparecen vacíos sin ningún error.
+// Las vistas consultadas por la API y las columnas que el código espera de
+// cada una. Si algo de esto cambia en la base, la ficha o los filtros pueden
+// fallar: por eso se comprueban también las vistas de filtros.
 const VISTAS = {
     'VI_GIS_CATASTRO_PADRON': ['NOMENCLA', 'ACTIVO', 'NRO_RENTA', 'CALLE', 'NRO', 'BARRIO', 'ESQ_MED', 'SUP_TER', 'DESIG_OFI', 'BAL_EDIF', 'MET_FRENTE'],
     'VI_CPAR_PROPIETARIOS':   ['APELLIDO', 'NOMBRE', 'CALLE', 'NUMERACION_CALLE', 'BARRIO', 'CODIGO_POSTAL_REAL', 'PROVINCIA', 'NOMENCLATURA'],
     'VI_CPAR_FRENTES':        ['CONCEPTO', 'NRO_RENTAS'],
-    'VI_GIS_ININ_CONTRIBUYENTES': ['CTA', 'CONTRIBUYENTE', 'PADRON']
+    'VI_GIS_ININ_CONTRIBUYENTES': ['CTA', 'CONTRIBUYENTE', 'PADRON'],
+    'VI_GIS_CATASTRO_COMERCIO': ['NOMENCLATURA', 'CTA_COMERCIO', 'CODIGO_RUBRO', 'RUBRO']
 };
 
 function seccion(titulo) {

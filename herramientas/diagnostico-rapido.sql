@@ -24,11 +24,12 @@ SELECT
     SERVERPROPERTY('ProductVersion')         AS version;
 GO
 
-/* --- 2) ¿Existen las 4 vistas y cuántas filas tienen? ------------------- */
+/* --- 2) ¿Existen las vistas y cuántas filas tienen? -------------------- */
 SELECT 'VI_GIS_CATASTRO_PADRON' AS vista, COUNT(*) AS filas FROM dbo.VI_GIS_CATASTRO_PADRON
 UNION ALL SELECT 'VI_CPAR_PROPIETARIOS', COUNT(*) FROM dbo.VI_CPAR_PROPIETARIOS
 UNION ALL SELECT 'VI_CPAR_FRENTES',      COUNT(*) FROM dbo.VI_CPAR_FRENTES
-UNION ALL SELECT 'VI_GIS_ININ_CONTRIBUYENTES',         COUNT(*) FROM dbo.VI_GIS_ININ_CONTRIBUYENTES;
+UNION ALL SELECT 'VI_GIS_ININ_CONTRIBUYENTES', COUNT(*) FROM dbo.VI_GIS_ININ_CONTRIBUYENTES
+UNION ALL SELECT 'VI_GIS_CATASTRO_COMERCIO', COUNT(*) FROM dbo.VI_GIS_CATASTRO_COMERCIO;
 GO
 
 /* --- 3) LA PREGUNTA CLAVE ------------------------------------------------

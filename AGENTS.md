@@ -15,11 +15,12 @@ Este documento contiene la arquitectura, las directivas de trabajo, los principi
 
 * **Frontend**: Aplicación web en JavaScript Vanilla, HTML5 y CSS3 construida sobre la librería de mapas **Leaflet**.
 * **Backend**: API REST en **Node.js** con **Express** y el conector `mssql` para comunicación con la base de datos.
-* **Base de Datos**: Microsoft SQL Server ubicado en la red municipal con acceso de solo lectura mediante cuatro vistas principales:
+* **Base de Datos**: Microsoft SQL Server ubicado en la red municipal con acceso de solo lectura mediante las vistas principales:
   * `VI_GIS_CATASTRO_PADRON` — Datos de la parcela.
   * `VI_CPAR_PROPIETARIOS` — Titulares (múltiples por parcela).
   * `VI_CPAR_FRENTES` — Zonificación.
   * `VI_GIS_ININ_CONTRIBUYENTES` — Estado de cuenta e información del contribuyente.
+  * `VI_GIS_CATASTRO_COMERCIO` — Rubros, nomenclaturas y cuentas de comercios.
 * **Datos Espaciales**: Capas GeoJSON almacenadas en `web/datos/` en el sistema geodésico **WGS84 (EPSG:4326)**.
 
 ---
@@ -85,7 +86,7 @@ node server.js
 ```
 
 ### Verificación de la Base de Datos
-Probar credenciales y comprobar la existencia de las cuatro vistas requeridas:
+Probar credenciales y comprobar la existencia de las vistas requeridas:
 ```bash
 node herramientas/probar-conexion.js
 ```

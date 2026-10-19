@@ -49,6 +49,8 @@ const CAPACIDADES = [
     ['Selección de sub-unidad PH',   'seleccionarPH'],
     ['Filtro por superficie',        'supMin'],
     ['Filtro por edificación',       'edificacion'],
+    ['Búsqueda de comercios por rubro', 'buscarComercios'],
+    ['Pintado de comercios por nomenclatura', 'pintarComerciosEnMapa'],
     ['Limpiar filtros',              'limpiarFiltros'],
     ['Pintar resultados en el mapa', 'paintMapFromFilter'],
     ['Tabla de resultados',          'abrirModalResultados'],
@@ -62,8 +64,14 @@ const CAPACIDADES = [
     ['Punto en polígono',            'isPointInPolygon']
 ];
 
-/** Endpoints que el visor original consumía y que no se pueden eliminar. */
-const ENDPOINTS = ['api/catastro', 'api/superficie', 'api/edificacion'];
+/** Endpoints del visor que deben seguir disponibles. */
+const ENDPOINTS = [
+    'api/catastro',
+    'api/superficie',
+    'api/edificacion',
+    'api/comercios/opciones',
+    'api/comercios'
+];
 
 function leer(ruta) {
     if (!fs.existsSync(ruta)) return null;

@@ -134,7 +134,8 @@ explica qué hace.
 | La **plancheta** catastral (el PDF)         | `web/js/app.js` → función `imprimirFicha()`        |
 | El **libre de deuda** del Juzgado           | `web/js/app.js` → función `imprimirLibreDeuda()`   |
 | Propiedad horizontal (elegir sub-unidad)    | `web/js/app.js` → `mostrarModalPH()`, `seleccionarPH()`, `procesarParcela()` |
-| Los **filtros** (superficie, zona, barrio)  | `web/js/app.js` → `aplicarFiltros()` + `server.js` → `/api/filtrar` |
+| Los **filtros de parcelas** (superficie, zona, barrio) | `web/js/app.js` → `aplicarFiltros()` + `server.js` → `/api/filtrar` |
+| Buscar **comercios por rubro** | `web/js/app.js` → `buscarComercios()` + `server.js` → `/api/comercios` |
 | Qué datos trae la ficha de una parcela      | `servidor/server.js` → `/api/catastro`             |
 | **Cargar un plano nuevo** con más parcelas  | `web/js/app.js` → const `PLANO`, y `docs/actualizar-el-plano.md` |
 | A qué base de datos se conecta              | `servidor/.env` (se edita con `CONFIGURAR.bat`)    |
@@ -277,7 +278,8 @@ ese botón.
 ## Estado y pendientes
 
 **Funcionando:** mapa con las parcelas, búsqueda por padrón, ficha catastral con
-todos los titulares, plancheta imprimible, filtros por superficie y edificación.
+todos los titulares, plancheta imprimible, filtros por superficie y edificación,
+y búsqueda de comercios por rubro.
 
 **Publicado en Vercel:** <https://plataforma-muni.vercel.app> — se despliega solo
 en cada push a `main`. Ahí el mapa funciona, pero las fichas salen sin titular:
@@ -311,12 +313,13 @@ responder desde una computadora de la Municipalidad.
 
 ## Base de datos
 
-SQL Server, acceso de **solo lectura** sobre cuatro vistas:
+SQL Server, acceso de **solo lectura** sobre las vistas:
 
 - `VI_GIS_CATASTRO_PADRON` — datos de la parcela
 - `VI_CPAR_PROPIETARIOS` — titulares (varios por parcela)
 - `VI_CPAR_FRENTES` — zonificación
 - `VI_GIS_ININ_CONTRIBUYENTES` — número de cuenta y contribuyente
+- `VI_GIS_CATASTRO_COMERCIO` — rubros y cuentas de comercios
 
 Es un sistema contratado a un proveedor: las tablas no se modifican, solo se
 consultan.

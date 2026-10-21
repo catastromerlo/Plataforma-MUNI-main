@@ -996,14 +996,14 @@ app.get('/api/comercios', async (req, res) => {
         return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
     }
 
-    const rubro = String(req.query.rubro || '').trim().slice(0, 120);
+    const rubro = String(req.query.rubro || '').trim();
     if (!rubro) {
         return res.status(400).json({ error: 'Debe seleccionar un rubro comercial.' });
     }
 
     try {
         const request = activePool.request();
-        request.input('rubro', sql.VarChar(120), rubro);
+        request.input('rubro', sql.NVarChar(4000), rubro);
         request.input('maxRows', sql.Int, MAX_ROWS);
         const resultado = await request.query(`
             SELECT TOP (@maxRows)

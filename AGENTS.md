@@ -37,6 +37,10 @@ Este documento contiene la arquitectura, las directivas de trabajo, los principi
    * La plantilla del **Libre de Deuda del Juzgado de Faltas** se basa en un modelo oficial municipal (`LIBRE__DEUDA__DE__FALTAS.docx`); la redacción de su texto tiene valor administrativo y no debe alterarse de forma arbitraria.
 4. **Verificación de Equivalencia e Integridad**:
    * Antes y después de modificar `web/js/app.js` o las consultas en `servidor/server.js`, es obligatorio ejecutar los scripts de verificación de integridad.
+5. **Separación obligatoria entre pruebas y producción**:
+   * La instalación productiva de GitHub y su actualizador deben conservar el puerto `8002` y el servicio `VisorCatastralMerlo`.
+   * La copia de pruebas `C:\Prueba-GIS\Plataforma-MUNI-main` usa el puerto `8003` y el servicio `VisorCatastralMerloPrueba`. Esos valores son exclusivamente locales: nunca incluirlos en un commit o push a `main`.
+   * Antes de confirmar cambios, revisar el diff preparado de `INICIAR.bat`, `INSTALAR.bat`, `servidor/server.js`, `servidor/.env.example` y `herramientas/servicio-*.ps1`. Verificar que la configuración publicada siga apuntando a `8002` y al servicio productivo. No copiar la configuración local de pruebas al repositorio de producción.
 
 ---
 

@@ -69,6 +69,21 @@ escrita para alguien que no programa.
 
 Equivale a lo que hace `INSTALAR.bat`, para quien prefiera la consola:
 
+### Regla obligatoria: separar la copia de pruebas de producción
+
+La instalación que descarga `ACTUALIZAR.bat` desde GitHub debe conservar el
+puerto `8002` y el servicio `VisorCatastralMerlo`. La copia paralela
+`C:\Prueba-GIS\Plataforma-MUNI-main` es solo para pruebas: usa el puerto `8003`
+y el servicio `VisorCatastralMerloPrueba`.
+
+**No hacer commit ni push a `main` de los cambios locales que configuran el
+puerto `8003` o el servicio de pruebas.** Antes de publicar, revisar el diff
+preparado de `INICIAR.bat`, `INSTALAR.bat`, `servidor/server.js`,
+`servidor/.env.example` y `herramientas/servicio-*.ps1`; los archivos de
+arranque publicados deben seguir usando `8002` y `VisorCatastralMerlo`. Así,
+`ACTUALIZAR.bat` no reemplaza la instalación municipal con la configuración
+paralela de pruebas.
+
 ```bash
 cd servidor
 npm install

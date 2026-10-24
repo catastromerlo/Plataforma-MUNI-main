@@ -48,6 +48,7 @@ Plataforma-MUNI/
 ├── INICIAR.bat              # Lanzador del servicio y apertura en el navegador
 ├── CONFIGURAR.bat           # Interfaz de configuración de credenciales de SQL Server
 ├── ACTUALIZAR.bat           # Actualizador del código preservando credenciales (.env)
+├── SERVICIO-REINICIAR.bat   # Reinicia el servicio de Windows como administrador
 ├── DIAGNOSTICO.bat          # Generador de informes sobre el estado del sistema
 ├── VERSION.txt              # Control de versión actual
 ├── web/                     # Frontend estático del sistema

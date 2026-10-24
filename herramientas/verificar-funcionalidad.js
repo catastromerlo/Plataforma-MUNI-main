@@ -51,6 +51,7 @@ const CAPACIDADES = [
     ['Filtro por edificación',       'edificacion'],
     ['Búsqueda de comercios por rubro', 'buscarComercios'],
     ['Pintado de comercios por nomenclatura', 'pintarComerciosEnMapa'],
+    ['Generación de informe parcelario por barrio', 'generarInformeParcelario'],
     ['Limpiar filtros',              'limpiarFiltros'],
     ['Pintar resultados en el mapa', 'paintMapFromFilter'],
     ['Tabla de resultados',          'abrirModalResultados'],
@@ -70,7 +71,8 @@ const ENDPOINTS = [
     'api/superficie',
     'api/edificacion',
     'api/comercios/opciones',
-    'api/comercios'
+    'api/comercios',
+    'api/informe/superficies'
 ];
 
 function leer(ruta) {

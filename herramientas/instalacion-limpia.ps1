@@ -27,7 +27,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$origen = "https://github.com/FacuChiza/Plataforma-MUNI/archive/refs/heads/main.zip"
+$origen = "https://github.com/catastromerlo/Plataforma-MUNI-main/archive/refs/heads/main.zip"
 
 Write-Host ""
 Write-Host "  ============================================================"

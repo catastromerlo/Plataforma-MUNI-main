@@ -425,7 +425,7 @@ app.use((req, res, next) => {
     if (origen && ORIGENES_PERMITIDOS.includes(origen)) {
         res.setHeader('Access-Control-Allow-Origin', origen);
         res.setHeader('Vary', 'Origin');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
         // El navegador pregunta con un OPTIONS antes de la consulta real
@@ -990,20 +990,58 @@ app.get('/api/comercios/opciones', async (req, res) => {
     }
 });
 
+app.post('/api/informe/superficies', express.json({ limit: '32kb' }), async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'La base municipal no está disponible para consultar superficies.' });
+    }
+
+    const padronesRecibidos = req.body && req.body.padrones;
+    if (!Array.isArray(padronesRecibidos) || padronesRecibidos.length === 0 ||
+        padronesRecibidos.length > 200 ||
+        padronesRecibidos.some((padron) =>
+            typeof padron !== 'string' || !padron.trim() || padron.trim().length > 40
+        )) {
+        return res.status(400).json({ error: 'La lista de padrones del informe es inválida.' });
+    }
+
+    try {
+        const padrones = [...new Set(padronesRecibidos.map((padron) => padron.trim()))];
+        const request = activePool.request();
+        const parametros = padrones.map((padron, indice) => {
+            const nombre = `padron${indice}`;
+            request.input(nombre, sql.VarChar(40), padron);
+            return `@${nombre}`;
+        });
+        const resultado = await request.query(`
+            SELECT DISTINCT
+                LTRIM(RTRIM(NRO_RENTA)) AS PADRON,
+                LTRIM(RTRIM(NOMENCLA)) AS NOMENCLA,
+                SUP_TER
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON
+            WHERE LTRIM(RTRIM(NRO_RENTA)) IN (${parametros.join(', ')})
+        `);
+        res.json(resultado.recordset);
+    } catch (err) {
+        console.error('Error al consultar superficies para el informe parcelario:', err);
+        res.status(500).json({ error: 'No se pudieron consultar las superficies del informe.' });
+    }
+});
+
 app.get('/api/comercios', async (req, res) => {
     const activePool = getPool();
     if (!activePool) {
         return res.status(503).json({ error: 'Base de datos municipal no disponible en este momento.' });
     }
 
-    const rubro = String(req.query.rubro || '').trim().slice(0, 120);
+    const rubro = String(req.query.rubro || '').trim();
     if (!rubro) {
         return res.status(400).json({ error: 'Debe seleccionar un rubro comercial.' });
     }
 
     try {
         const request = activePool.request();
-        request.input('rubro', sql.VarChar(120), rubro);
+        request.input('rubro', sql.NVarChar(4000), rubro);
         request.input('maxRows', sql.Int, MAX_ROWS);
         const resultado = await request.query(`
             SELECT TOP (@maxRows)

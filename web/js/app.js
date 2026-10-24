@@ -2689,6 +2689,377 @@ ${p._DEMO ? `
             selectedLayer = null;
         }
 
+        function mostrarEstadoInforme(mensaje, esError = false) {
+            const resumen = document.getElementById('informe-resumen');
+            resumen.textContent = mensaje;
+            resumen.classList.remove('hidden', 'text-red-700', 'text-slate-500');
+            resumen.classList.add(esError ? 'text-red-700' : 'text-slate-500');
+        }
+
+        function limitesGeoJson(geometry) {
+            const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+            const recorrer = (coordinates) => {
+                if (!Array.isArray(coordinates)) return;
+                if (typeof coordinates[0] === 'number' && typeof coordinates[1] === 'number') {
+                    bounds.minX = Math.min(bounds.minX, coordinates[0]);
+                    bounds.minY = Math.min(bounds.minY, coordinates[1]);
+                    bounds.maxX = Math.max(bounds.maxX, coordinates[0]);
+                    bounds.maxY = Math.max(bounds.maxY, coordinates[1]);
+                    return;
+                }
+                for (const coordinate of coordinates) recorrer(coordinate);
+            };
+            recorrer(geometry && geometry.coordinates);
+            return bounds;
+        }
+
+        function puntoEnGeometriaGeoJson(punto, geometry) {
+            const poligonos = geometry && geometry.type === 'Polygon'
+                ? [geometry.coordinates]
+                : geometry && geometry.type === 'MultiPolygon'
+                    ? geometry.coordinates
+                    : [];
+
+            for (const anillos of poligonos) {
+                if (!anillos.length || !isPointInPolygon([punto[1], punto[0]], anillos[0])) continue;
+                if (!anillos.slice(1).some((hueco) => isPointInPolygon([punto[1], punto[0]], hueco))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function obtenerCapasParcelarias() {
+            const parcelas = [];
+            const recorrer = (grupo) => {
+                grupo.eachLayer((layer) => {
+                    if (layer.feature && layer.feature.geometry) {
+                        parcelas.push(layer);
+                    } else if (typeof layer.eachLayer === 'function') {
+                        recorrer(layer);
+                    }
+                });
+            };
+            recorrer(geojsonLayer);
+            return parcelas;
+        }
+
+        function calcularDatosInformeParcelario() {
+            const puntosPorNomenclatura = new Map();
+            const puntosPorPadron = new Map();
+            const gruposPH = new Set();
+            const unidadesPH = new Set();
+
+            for (let indice = 0; indice < labelsData.length; indice++) {
+                const feature = labelsData[indice];
+                const props = feature.properties || {};
+                const nomenclatura = normalizarNomenclatura(props.NOMENCLATU || '');
+                const coordinates = feature.geometry && feature.geometry.type === 'Point'
+                    ? feature.geometry.coordinates
+                    : null;
+                if (nomenclatura && coordinates && !puntosPorNomenclatura.has(nomenclatura)) {
+                    puntosPorNomenclatura.set(nomenclatura, coordinates);
+                }
+                const clavePadron = normalizarPadron(props.PADRON || '');
+                if (clavePadron && coordinates && !puntosPorPadron.has(clavePadron)) {
+                    puntosPorPadron.set(clavePadron, coordinates);
+                }
+
+                const padronesSecundarios = [];
+                for (let unidad = 2; unidad <= 30; unidad++) {
+                    const padron = String(props[`PADRON_${unidad}`] || '').trim();
+                    if (padron) padronesSecundarios.push(padron);
+                }
+                if (!padronesSecundarios.length) continue;
+
+                const padronesUnidad = [];
+                for (let unidad = 1; unidad <= 30; unidad++) {
+                    const padron = String(props[`PADRON_${unidad}`] || '').trim();
+                    if (!padron) continue;
+                    padronesUnidad.push(normalizarPadron(padron));
+                    unidadesPH.add(normalizarPadron(padron));
+                }
+                const claveGrupo = nomenclatura ||
+                    padronesUnidad.slice().sort().join('|') ||
+                    `feature-${indice}`;
+                gruposPH.add(claveGrupo);
+            }
+
+            const barrios = barriosData
+                .map((feature) => ({
+                    nombre: String((feature.properties || {}).Nombre || '').trim(),
+                    geometry: feature.geometry,
+                    bounds: limitesGeoJson(feature.geometry)
+                }))
+                .filter((barrio) => barrio.nombre && Number.isFinite(barrio.bounds.minX));
+            if (barrios.length === 0) {
+                throw new Error('No se cargaron los límites de barrios. No se puede agrupar el informe.');
+            }
+
+            const grupos = new Map(barrios.map((barrio) => [
+                barrio.nombre,
+                { nombre: barrio.nombre, cantidad: 0, parcelas: [] }
+            ]));
+            let sinNomenclatura = 0;
+            const parcelas = obtenerCapasParcelarias();
+            if (parcelas.length === 0) {
+                throw new Error('No se cargaron los polígonos de parcelas. No se puede generar el informe.');
+            }
+
+            for (const layer of parcelas) {
+                const feature = layer.feature;
+                const props = feature && feature.properties ? feature.properties : {};
+                const nomenclaturaOriginal = String(props.NOMENCLA || '').trim();
+                const nomenclatura = normalizarNomenclatura(nomenclaturaOriginal);
+                const padron = String(props.NRO_RENTA || '').trim();
+                let punto = nomenclatura ? puntosPorNomenclatura.get(nomenclatura) : null;
+                if (!punto && padron) punto = puntosPorPadron.get(normalizarPadron(padron));
+
+                if (!punto && layer.getBounds) {
+                    const centro = layer.getBounds().getCenter();
+                    punto = [centro.lng, centro.lat];
+                }
+                if (!nomenclaturaOriginal) sinNomenclatura++;
+
+                let nombreBarrio = '';
+                if (punto) {
+                    nombreBarrio = (barrios.find((barrio) => {
+                        const bounds = barrio.bounds;
+                        return punto[0] >= bounds.minX && punto[0] <= bounds.maxX &&
+                            punto[1] >= bounds.minY && punto[1] <= bounds.maxY &&
+                            puntoEnGeometriaGeoJson(punto, barrio.geometry);
+                    }) || {}).nombre || '';
+                }
+
+                const claveBarrio = nombreBarrio || 'Sin barrio asignado';
+                if (!grupos.has(claveBarrio)) {
+                    grupos.set(claveBarrio, { nombre: claveBarrio, cantidad: 0, parcelas: [] });
+                }
+                const grupo = grupos.get(claveBarrio);
+                grupo.cantidad++;
+                if (padron && nomenclaturaOriginal) {
+                    grupo.parcelas.push({ padron, nomenclatura: nomenclaturaOriginal });
+                }
+            }
+
+            return {
+                totalParcelas: parcelas.length,
+                parcelasConPH: gruposPH.size,
+                unidadesPH: unidadesPH.size,
+                sinNomenclatura,
+                grupos: [...grupos.values()]
+                    .filter((grupo) => grupo.cantidad > 0)
+                    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+            };
+        }
+
+        function seleccionarMuestrasBarrio(parcelas, limite = 3) {
+            const ordenadas = parcelas.slice().sort((a, b) =>
+                a.padron.localeCompare(b.padron, 'es', { numeric: true })
+            );
+            const cantidad = Math.min(limite, ordenadas.length);
+            if (cantidad === 0) return [];
+            if (cantidad === 1) return [ordenadas[Math.floor((ordenadas.length - 1) / 2)]];
+
+            const indices = new Set();
+            for (let indice = 0; indice < cantidad; indice++) {
+                indices.add(Math.round(indice * (ordenadas.length - 1) / (cantidad - 1)));
+            }
+            return [...indices].map((indice) => ordenadas[indice]);
+        }
+
+        function construirHtmlInformeParcelario(informe, muestras, superficies) {
+            const esc = (valor) => String(valor == null ? '' : valor)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+            const cantidad = (valor) => new Intl.NumberFormat('es-AR').format(valor);
+            const superficie = (valor) => {
+                const numero = Number(valor);
+                return valor != null && Number.isFinite(numero)
+                    ? `${new Intl.NumberFormat('es-AR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    }).format(numero)} m²`
+                    : 'Sin dato en la base';
+            };
+            const generado = new Date().toLocaleString('es-AR');
+            const barriosConMuestra = informe.grupos.map((grupo) => ({
+                ...grupo,
+                muestras: muestras.get(grupo.nombre) || []
+            }));
+            const filasResumen = barriosConMuestra.map((grupo) => `
+                <tr>
+                    <td>${esc(grupo.nombre)}</td>
+                    <td class="numero">${cantidad(grupo.cantidad)}</td>
+                    <td class="numero">${cantidad(grupo.muestras.length)}</td>
+                </tr>`).join('') + `
+                <tr class="total-row">
+                    <td>Total general</td>
+                    <td class="numero">${cantidad(informe.totalParcelas)}</td>
+                    <td class="numero">${cantidad(barriosConMuestra.reduce((total, grupo) => total + grupo.muestras.length, 0))}</td>
+                </tr>`;
+            const seccionesDetalle = barriosConMuestra
+                .filter((grupo) => grupo.muestras.length > 0)
+                .map((grupo) => `
+                    <section class="barrio-card">
+                        <h3>${esc(grupo.nombre)} <span>${cantidad(grupo.cantidad)} parcelas</span></h3>
+                        <table>
+                            <thead><tr><th>ID / Padrón</th><th>Nomenclatura</th><th>Barrio</th><th>Superficie exacta</th></tr></thead>
+                            <tbody>${grupo.muestras.map((parcela) => `
+                                <tr>
+                                    <td>${esc(parcela.padron)}</td>
+                                    <td class="nomenclatura">${esc(parcela.nomenclatura)}</td>
+                                    <td>${esc(grupo.nombre)}</td>
+                                    <td class="numero">${superficie(superficies.get(normalizarPadron(parcela.padron)))}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </section>`).join('');
+            const logo = `${window.location.origin}/img/escudoMerlo.jpg`;
+            const sinBarrio = (informe.grupos.find((grupo) => grupo.nombre === 'Sin barrio asignado') || {}).cantidad || 0;
+
+            return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Informe parcelario - Villa de Merlo</title>
+<style>
+    @page { size: A4 portrait; margin: 13mm 12mm 16mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #1e293b; font: 10px Arial, sans-serif; line-height: 1.4; }
+    .toolbar { position: sticky; top: 0; z-index: 2; padding: 12px; text-align: center; background: #e2e8f0; }
+    .toolbar button { border: 0; padding: 10px 24px; background: #047857; color: #fff; font-weight: 800; text-transform: uppercase; cursor: pointer; }
+    .document { max-width: 190mm; margin: 14px auto; }
+    .topline { height: 7px; background: #13a9b8; margin-bottom: 11px; }
+    .institution { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 52px; margin-bottom: 8px; color: #334155; text-align: right; font-size: 9px; }
+    .institution img { width: 44px; height: 44px; object-fit: contain; }
+    .title-band { padding: 13px 16px; background: #0f1b32; color: #fff; }
+    .title-band h1 { margin: 0; font-size: 18px; line-height: 1.2; }
+    .title-band p { margin: 4px 0 0; color: #cbd5e1; font-size: 9px; }
+    .generated { margin: 7px 0 12px; color: #64748b; text-align: right; font-size: 8px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+    .metric { padding: 10px; border: 1px solid #cbd5e1; background: #f8fafc; }
+    .metric span { display: block; color: #64748b; font-size: 8px; font-weight: 700; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 3px; color: #0f1b32; font-size: 19px; }
+    h2 { margin: 14px 0 7px; padding-bottom: 4px; border-bottom: 1px solid #13a9b8; color: #0f1b32; font-size: 12px; }
+    h2.detail-title { break-before: page; page-break-before: always; }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 5px 6px; background: #e8f1f4; color: #334155; text-align: left; font-size: 8px; }
+    td { padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    .total-row { font-weight: 800; background: #e8f1f4; }
+    .numero { text-align: right; white-space: nowrap; }
+    .note { margin: 9px 0; padding: 8px 10px; border-left: 3px solid #13a9b8; background: #f0fdfa; color: #334155; font-size: 8px; }
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .barrio-card { border: 1px solid #cbd5e1; break-inside: avoid; page-break-inside: avoid; }
+    .barrio-card h3 { display: flex; justify-content: space-between; gap: 5px; margin: 0; padding: 6px 7px; background: #f1f5f9; color: #0f1b32; font-size: 9px; }
+    .barrio-card h3 span { color: #475569; font-size: 8px; font-weight: 400; white-space: nowrap; }
+    .barrio-card table { font-size: 7px; }
+    .barrio-card th { padding: 4px 3px; font-size: 6.5px; }
+    .barrio-card td { padding: 4px 3px; overflow-wrap: anywhere; }
+    .nomenclatura { font-family: Consolas, monospace; font-size: 6.5px; }
+    .footer-note { margin-top: 12px; color: #64748b; font-size: 8px; }
+    @media print {
+        .toolbar { display: none; }
+        .document { max-width: none; margin: 0; }
+        .topline, .title-band, .metric, th, .barrio-card h3 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        thead { display: table-header-group; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
+    }
+</style>
+</head>
+<body>
+    <div class="toolbar"><button type="button" onclick="window.print()">Imprimir / Guardar como PDF</button></div>
+    <main class="document">
+        <div class="topline"></div>
+        <div class="institution">
+            <div><strong>Secretaría de Ambiente y Ordenamiento Territorial</strong><br>Dirección de Catastro · Villa de Merlo</div>
+            <img src="${esc(logo)}" alt="Escudo de Villa de Merlo">
+        </div>
+        <header class="title-band">
+            <h1>Informe de Análisis Parcelario</h1>
+            <p>Catastro municipal · distribución por barrio y propiedad horizontal</p>
+        </header>
+        <p class="generated">Generado: ${esc(generado)}</p>
+        <section class="metrics">
+            <div class="metric"><span>Total de parcelas</span><strong>${cantidad(informe.totalParcelas)}</strong></div>
+            <div class="metric"><span>Parcelas con unidades PH</span><strong>${cantidad(informe.parcelasConPH)}</strong></div>
+            <div class="metric"><span>Unidades funcionales PH</span><strong>${cantidad(informe.unidadesPH)}</strong></div>
+        </section>
+        <h2>1. Distribución de parcelas por barrio</h2>
+        <table>
+            <thead><tr><th>Barrio</th><th class="numero">Parcelas en el plano</th><th class="numero">Ejemplos detallados</th></tr></thead>
+            <tbody>${filasResumen}</tbody>
+        </table>
+        <p class="note">
+            El total de parcelas cuenta los polígonos del plano parcelario. La asignación por barrio se realiza con la ubicación de los puntos catastrales y los límites de barrios. ${cantidad(informe.sinNomenclatura)} parcelas del plano no tienen nomenclatura registrada; ${cantidad(sinBarrio)} no pudieron ubicarse dentro de un barrio.
+        </p>
+        <h2 class="detail-title">2. Muestra detallada de identificadores y nomenclaturas por barrio</h2>
+        <p class="footer-note">Se incluyen hasta tres ejemplos por barrio, distribuidos entre los padrones disponibles. Las superficies se consultan en vivo en la base municipal; si una parcela no tiene registro, se indica expresamente.</p>
+        <div class="details-grid">${seccionesDetalle}</div>
+        <p class="footer-note">Fuente geométrica: Merlo2026Parcelas-V1.json · Propiedad horizontal: MerloPuntosNomeclaParcelasV2.json · Límites barriales: MerloBarrios.json.</p>
+    </main>
+</body>
+</html>`;
+        }
+
+        async function generarInformeParcelario() {
+            const ventana = window.open('', '_blank');
+            if (!ventana) {
+                mostrarEstadoInforme('El navegador bloqueó la ventana del informe. Habilite las ventanas emergentes e inténtelo nuevamente.', true);
+                return;
+            }
+
+            const boton = document.getElementById('generar-informe');
+            boton.disabled = true;
+            mostrarEstadoInforme('Preparando conteos y superficies desde la base municipal...');
+
+            try {
+                if (labelsData.length === 0 || barriosData.length === 0) {
+                    throw new Error('Espere a que carguen el plano de parcelas, los puntos y los barrios antes de generar el informe.');
+                }
+
+                const informe = calcularDatosInformeParcelario();
+                const muestras = new Map(informe.grupos.map((grupo) => [
+                    grupo.nombre,
+                    seleccionarMuestrasBarrio(grupo.parcelas)
+                ]));
+                const padrones = [...new Set([...muestras.values()]
+                    .flat()
+                    .map((parcela) => parcela.padron))];
+                if (padrones.length === 0) {
+                    throw new Error('No se encontraron padrones para consultar las superficies de muestra.');
+                }
+
+                const respuesta = await fetch(CONFIG.url('api/informe/superficies'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ padrones })
+                });
+                if (!respuesta.ok) {
+                    const detalle = await respuesta.json().catch(() => ({}));
+                    throw new Error(detalle.error || 'No se pudieron consultar las superficies de la base municipal.');
+                }
+
+                const superficiesDevueltas = await respuesta.json();
+                const superficies = new Map((Array.isArray(superficiesDevueltas) ? superficiesDevueltas : [])
+                    .map((fila) => [normalizarPadron(fila.PADRON), fila.SUP_TER]));
+                ventana.document.open();
+                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies));
+                ventana.document.close();
+                mostrarEstadoInforme(`Informe listo: ${informe.totalParcelas} parcelas y ${informe.grupos.length} grupos por barrio.`);
+            } catch (error) {
+                ventana.close();
+                console.error('Error al generar el informe parcelario:', error);
+                mostrarEstadoInforme(error.message || 'No se pudo generar el informe parcelario.', true);
+            } finally {
+                boton.disabled = false;
+            }
+        }
+
 
         // ====================================================================
         // ARCHIVOS DEL PLANO

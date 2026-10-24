@@ -218,6 +218,11 @@ versión nueva funcionando. No hay que reiniciar nada a mano.
 
 Al final muestra qué versión había antes y cuál quedó.
 
+Para reiniciar el servicio manualmente —por ejemplo, después de aplicar
+cambios locales—, hacer clic derecho en `SERVICIO-REINICIAR.bat` y elegir
+**Ejecutar como administrador**. Al terminar muestra la versión que está
+respondiendo en el puerto 8002.
+
 ### Cómo saber qué versión está corriendo
 
 La versión aparece **abajo a la derecha del mapa**, junto al sistema de
@@ -232,7 +237,7 @@ en otro lado, mirá ese número.
 `ACTUALIZAR.bat` necesita salida a internet para bajar la versión nueva. Si el
 equipo no la tiene, hay que hacerlo a mano desde otra máquina:
 
-1. Bajar el ZIP de <https://github.com/FacuChiza/Plataforma-MUNI>
+1. Bajar el ZIP de <https://github.com/catastromerlo/Plataforma-MUNI-main>
 2. Descomprimirlo y copiar **encima** de la carpeta del visor, eligiendo
    **Reemplazar los archivos** cuando Windows pregunte
 3. **No tocar `servidor\.env`**: ahí están los datos de conexión

@@ -4,6 +4,10 @@ Visor web de las parcelas de Villa de Merlo (San Luis) para la Municipalidad.
 Mapa interactivo sobre Leaflet, con la ficha catastral de cada parcela
 consultada en vivo contra la base municipal.
 
+El panel lateral incluye **Generar informe**: resume las parcelas dibujadas,
+las unidades de propiedad horizontal y una muestra de identificadores por
+barrio. Las superficies de esa muestra se consultan en la base municipal.
+
 ---
 
 ## Instalarlo en una computadora de la Municipalidad
@@ -32,6 +36,10 @@ recomendada de actualizar: bajar el ZIP y descomprimir a mano falla de maneras
 que no se notan —se descomprime en otra carpeta, o Windows omite archivos al
 reemplazar— y la computadora queda ejecutando la versión anterior sin que nadie
 se dé cuenta.
+
+`SERVICIO-REINICIAR.bat` reinicia el servicio del visor sin cambiar su
+configuración. Ejecutarlo como administrador; al final muestra la versión que
+está respondiendo.
 
 `DIAGNOSTICO.bat` genera un informe con el estado real de la instalación:
 versión, carpeta desde la que se ejecuta, si quedaron copias viejas del programa
@@ -154,6 +162,7 @@ INSTALAR.bat             instalación en un doble clic (una sola vez)
 INICIAR.bat              arranca el visor y lo abre en el navegador
 CONFIGURAR.bat           cambia los datos de conexión a la base
 ACTUALIZAR.bat           baja la última versión conservando la configuración
+SERVICIO-REINICIAR.bat   reinicia el servicio del visor (como administrador)
 DIAGNOSTICO.bat          informe del estado real de la instalación
 VERSION.txt              versión del programa
 

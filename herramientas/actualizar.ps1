@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 
 $carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $raiz    = Split-Path -Parent $carpeta
-$origen  = "https://github.com/FacuChiza/Plataforma-MUNI/archive/refs/heads/main.zip"
+$origen  = "https://github.com/catastromerlo/Plataforma-MUNI-main/archive/refs/heads/main.zip"
 
 # -----------------------------------------------------------------------------
 # SERVICIO DE WINDOWS (si esta instalado con INSTALAR.bat)
@@ -120,6 +120,7 @@ try {
         "CONFIGURAR.bat",
         "ACTUALIZAR.bat",
         "SERVICIO-DETENER.bat",
+        "SERVICIO-REINICIAR.bat",
         "SERVICIO-DESINSTALAR.bat",
         "VERSION.txt",
         "README.md"
@@ -191,7 +192,7 @@ try {
     Write-Host ""
     Write-Host "   La causa mas comun es que esta computadora no tenga salida a"
     Write-Host "   internet. En ese caso hay que bajar el ZIP desde otra maquina:"
-    Write-Host "     https://github.com/FacuChiza/Plataforma-MUNI"
+    Write-Host "     https://github.com/catastromerlo/Plataforma-MUNI-main"
     Write-Host "   y reemplazar los archivos a mano, SIN tocar servidor\.env"
     Write-Host ""
     Write-Host "   La instalacion actual quedo intacta."

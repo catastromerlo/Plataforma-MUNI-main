@@ -1028,6 +1028,90 @@ app.post('/api/informe/superficies', express.json({ limit: '32kb' }), async (req
     }
 });
 
+app.post('/api/informe/mapa-superficies', express.json({ limit: '8kb' }), async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'La base municipal no está disponible para clasificar las superficies.' });
+    }
+
+    const rangosRecibidos = req.body && req.body.rangos;
+    if (!Array.isArray(rangosRecibidos) || rangosRecibidos.length !== 9) {
+        return res.status(400).json({ error: 'El plano requiere exactamente nueve rangos de superficie.' });
+    }
+
+    const rangos = [];
+    for (let indice = 0; indice < rangosRecibidos.length; indice++) {
+        const rango = rangosRecibidos[indice];
+        const minimo = rango && rango.minimo;
+        const maximo = rango && rango.maximo;
+        if (!rango ||
+            (minimo !== null && (typeof minimo !== 'number' || !Number.isFinite(minimo) || minimo < 0)) ||
+            (maximo !== null && (typeof maximo !== 'number' || !Number.isFinite(maximo) || maximo <= 0)) ||
+            (minimo === null && maximo === null) ||
+            (minimo !== null && maximo !== null && minimo >= maximo) ||
+            typeof rango.minimoExclusivo !== 'boolean' ||
+            typeof rango.maximoInclusivo !== 'boolean') {
+            return res.status(400).json({ error: `El rango ${indice + 1} no es válido.` });
+        }
+        rangos.push({
+            minimo,
+            maximo,
+            minimoExclusivo: rango.minimoExclusivo,
+            maximoInclusivo: rango.maximoInclusivo
+        });
+    }
+
+    const contieneLimite = (rango, valor) =>
+        (rango.minimo === null || valor > rango.minimo || (valor === rango.minimo && !rango.minimoExclusivo)) &&
+        (rango.maximo === null || valor < rango.maximo || (valor === rango.maximo && rango.maximoInclusivo));
+    for (let primero = 0; primero < rangos.length; primero++) {
+        for (let segundo = primero + 1; segundo < rangos.length; segundo++) {
+            const a = rangos[primero];
+            const b = rangos[segundo];
+            const inferior = Math.max(a.minimo === null ? -Infinity : a.minimo, b.minimo === null ? -Infinity : b.minimo);
+            const superior = Math.min(a.maximo === null ? Infinity : a.maximo, b.maximo === null ? Infinity : b.maximo);
+            if (inferior < superior ||
+                (inferior === superior && contieneLimite(a, inferior) && contieneLimite(b, inferior))) {
+                return res.status(400).json({ error: `Los rangos ${primero + 1} y ${segundo + 1} se superponen.` });
+            }
+        }
+    }
+
+    try {
+        const request = activePool.request();
+        const condiciones = rangos.map((rango, indice) => {
+            const partes = [];
+            if (rango.minimo !== null) {
+                const nombre = `minimo${indice}`;
+                request.input(nombre, sql.Float, rango.minimo);
+                partes.push(`SUP_TER ${rango.minimoExclusivo ? '>' : '>='} @${nombre}`);
+            }
+            if (rango.maximo !== null) {
+                const nombre = `maximo${indice}`;
+                request.input(nombre, sql.Float, rango.maximo);
+                partes.push(`SUP_TER ${rango.maximoInclusivo ? '<=' : '<'} @${nombre}`);
+            }
+            return `(${partes.join(' AND ')})`;
+        });
+        const casos = condiciones.map((condicion, indice) => `WHEN ${condicion} THEN ${indice + 1}`).join('\n');
+        const resultado = await request.query(`
+            SELECT DISTINCT
+                LTRIM(RTRIM(NRO_RENTA)) AS PADRON,
+                SUP_TER,
+                CASE ${casos} END AS GRUPO
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON
+            WHERE NRO_RENTA IS NOT NULL
+              AND LTRIM(RTRIM(NRO_RENTA)) <> ''
+              AND SUP_TER IS NOT NULL
+              AND (${condiciones.join(' OR ')})
+        `);
+        res.json(resultado.recordset);
+    } catch (err) {
+        console.error('Error al consultar superficies para el plano del informe parcelario:', err);
+        res.status(500).json({ error: 'No se pudieron consultar las superficies para el plano.' });
+    }
+});
+
 app.get('/api/comercios', async (req, res) => {
     const activePool = getPool();
     if (!activePool) {

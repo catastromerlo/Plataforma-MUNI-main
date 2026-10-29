@@ -256,6 +256,7 @@
         let labelsData = []; 
         let manzanasData = [];
         let barriosData = []; 
+        let ejidoData = [];
         
         let showLabels = false;
         let showManzanas = false;
@@ -2853,6 +2854,247 @@ ${p._DEMO ? `
             };
         }
 
+        const COLORES_SUPERFICIE_INFORME = [
+            '#73c2e4', '#a6d9e8', '#c8e7dc', '#e3edbd', '#fff0a8',
+            '#f8d68b', '#f4b77a', '#ed9281', '#dc6b78'
+        ];
+
+        function obtenerRangosSuperficieInforme() {
+            const rangos = [];
+            for (let indice = 1; indice <= COLORES_SUPERFICIE_INFORME.length; indice++) {
+                const campo = document.getElementById(`informe-rango-${indice}`);
+                const texto = campo.value.trim();
+                const coincidencia = texto.match(/^(<|>)?\s*(\d+(?:[.,]\d+)?)\s*(?:-\s*(\d+(?:[.,]\d+)?))?$/);
+                if (!coincidencia) {
+                    throw new Error(`El rango del grupo ${indice} no es válido. Use, por ejemplo, "0 - 300", "< 350" o "> 10000".`);
+                }
+
+                const numero = (valor) => Number(valor.replace(',', '.'));
+                const operador = coincidencia[1] || '';
+                const primero = numero(coincidencia[2]);
+                const segundo = coincidencia[3] ? numero(coincidencia[3]) : null;
+                let rango;
+                if (operador === '<' && segundo === null) {
+                    rango = { indice: indice - 1, etiqueta: texto, minimo: null, maximo: primero, minimoExclusivo: false, maximoInclusivo: false };
+                } else if (operador === '>' && segundo === null) {
+                    rango = { indice: indice - 1, etiqueta: texto, minimo: primero, maximo: null, minimoExclusivo: true, maximoInclusivo: false };
+                } else if (!operador && segundo !== null && primero < segundo) {
+                    rango = { indice: indice - 1, etiqueta: texto, minimo: primero, maximo: segundo, minimoExclusivo: false, maximoInclusivo: false };
+                } else {
+                    throw new Error(`El rango del grupo ${indice} debe tener un límite válido y, si tiene dos, el primero debe ser menor que el segundo.`);
+                }
+                if ((rango.minimo !== null && (!Number.isFinite(rango.minimo) || rango.minimo < 0)) ||
+                    (rango.maximo !== null && (!Number.isFinite(rango.maximo) || rango.maximo <= 0))) {
+                    throw new Error(`El rango del grupo ${indice} debe usar superficies numéricas no negativas.`);
+                }
+                rangos.push(rango);
+            }
+
+            for (let primero = 0; primero < rangos.length; primero++) {
+                for (let segundo = primero + 1; segundo < rangos.length; segundo++) {
+                    const a = rangos[primero];
+                    const b = rangos[segundo];
+                    const limiteInferior = Math.max(a.minimo === null ? -Infinity : a.minimo, b.minimo === null ? -Infinity : b.minimo);
+                    const limiteSuperior = Math.min(a.maximo === null ? Infinity : a.maximo, b.maximo === null ? Infinity : b.maximo);
+                    const incluyeLimite = (rango, valor) =>
+                        (rango.minimo === null || valor > rango.minimo || (valor === rango.minimo && !rango.minimoExclusivo)) &&
+                        (rango.maximo === null || valor < rango.maximo || (valor === rango.maximo && rango.maximoInclusivo));
+                    if (limiteInferior < limiteSuperior ||
+                        (limiteInferior === limiteSuperior && incluyeLimite(a, limiteInferior) && incluyeLimite(b, limiteInferior))) {
+                        throw new Error(`Los grupos ${primero + 1} y ${segundo + 1} se superponen. Ajuste sus límites para que cada parcela pertenezca a un solo grupo.`);
+                    }
+                }
+            }
+
+            const ordenados = rangos.slice().sort((a, b) =>
+                (a.minimo === null ? -Infinity : a.minimo) - (b.minimo === null ? -Infinity : b.minimo)
+            );
+            for (let indice = 0; indice < ordenados.length - 1; indice++) {
+                const actual = ordenados[indice];
+                const siguiente = ordenados[indice + 1];
+                if (actual.maximo !== null && siguiente.minimoExclusivo && actual.maximo === siguiente.minimo) {
+                    actual.maximoInclusivo = true;
+                }
+            }
+            return rangos;
+        }
+
+        function rangoSuperficieCoincidente(superficie, rangos) {
+            const valor = Number(superficie);
+            if (!Number.isFinite(valor)) return null;
+            return rangos.find((rango) =>
+                (rango.minimo === null || (rango.minimoExclusivo ? valor > rango.minimo : valor >= rango.minimo)) &&
+                (rango.maximo === null || (rango.maximoInclusivo ? valor <= rango.maximo : valor < rango.maximo))
+            ) || null;
+        }
+
+        function dibujarMapaInformeParcelario(parcelas, superficies, rangos) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 2400;
+            canvas.height = 1450;
+            const contexto = canvas.getContext('2d');
+            if (!contexto) throw new Error('No se pudo preparar el plano de superficies para imprimir.');
+
+            const geometriaEjido = ejidoData.map((feature) => feature.geometry).filter(Boolean);
+            const geometriasParcelas = parcelas.map((layer) => layer.feature && layer.feature.geometry).filter(Boolean);
+            const geometrias = geometriaEjido.concat(geometriasParcelas);
+            const limites = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+            const limitesLatitud = { minimo: Infinity, maximo: -Infinity };
+            const visitarCoordenadas = (geometry, callback) => {
+                const visitar = (coordenadas) => {
+                    if (!Array.isArray(coordenadas)) return;
+                    if (typeof coordenadas[0] === 'number' && typeof coordenadas[1] === 'number') {
+                        callback(coordenadas);
+                        return;
+                    }
+                    for (const coordenada of coordenadas) visitar(coordenada);
+                };
+                if (geometry) visitar(geometry.coordinates);
+            };
+            for (const geometry of geometrias) {
+                visitarCoordenadas(geometry, (coordenada) => {
+                    limitesLatitud.minimo = Math.min(limitesLatitud.minimo, coordenada[1]);
+                    limitesLatitud.maximo = Math.max(limitesLatitud.maximo, coordenada[1]);
+                });
+            }
+            if (!Number.isFinite(limitesLatitud.minimo) || !Number.isFinite(limitesLatitud.maximo)) {
+                throw new Error('No se encontraron límites geográficos para dibujar el plano.');
+            }
+            const latitudCentral = (limitesLatitud.minimo + limitesLatitud.maximo) / 2 * Math.PI / 180;
+            const proyectar = (coordenada) => {
+                const longitud = coordenada[0] * Math.PI / 180;
+                const latitud = coordenada[1] * Math.PI / 180;
+                return [6378137 * longitud * Math.cos(latitudCentral), 6378137 * latitud];
+            };
+            for (const geometry of geometrias) {
+                visitarCoordenadas(geometry, (coordenada) => {
+                    const punto = proyectar(coordenada);
+                    limites.minX = Math.min(limites.minX, punto[0]);
+                    limites.minY = Math.min(limites.minY, punto[1]);
+                    limites.maxX = Math.max(limites.maxX, punto[0]);
+                    limites.maxY = Math.max(limites.maxY, punto[1]);
+                });
+            }
+            if (!Number.isFinite(limites.minX) || !Number.isFinite(limites.minY)) {
+                throw new Error('No se encontraron límites geográficos para dibujar el plano.');
+            }
+
+            const margen = { izquierda: 95, derecha: 95, arriba: 85, abajo: 180 };
+            const anchoUtil = canvas.width - margen.izquierda - margen.derecha;
+            const altoUtil = canvas.height - margen.arriba - margen.abajo;
+            const escala = Math.min(
+                anchoUtil / (limites.maxX - limites.minX),
+                altoUtil / (limites.maxY - limites.minY)
+            );
+            const centroX = (limites.minX + limites.maxX) / 2;
+            const centroY = (limites.minY + limites.maxY) / 2;
+            const posicion = (coordenada) => {
+                const [x, y] = proyectar(coordenada);
+                return [
+                    canvas.width / 2 + (x - centroX) * escala,
+                    canvas.height / 2 - (y - centroY) * escala
+                ];
+            };
+            const dibujarGeometria = (geometry, relleno, borde, anchoBorde) => {
+                const poligonos = geometry.type === 'Polygon'
+                    ? [geometry.coordinates]
+                    : geometry.type === 'MultiPolygon'
+                        ? geometry.coordinates
+                        : [];
+                for (const anillos of poligonos) {
+                    contexto.beginPath();
+                    for (const anillo of anillos) {
+                        if (!anillo.length) continue;
+                        const inicio = posicion(anillo[0]);
+                        contexto.moveTo(inicio[0], inicio[1]);
+                        for (let indice = 1; indice < anillo.length; indice++) {
+                            const punto = posicion(anillo[indice]);
+                            contexto.lineTo(punto[0], punto[1]);
+                        }
+                        contexto.closePath();
+                    }
+                    if (relleno) {
+                        contexto.fillStyle = relleno;
+                        contexto.fill('evenodd');
+                    }
+                    if (borde) {
+                        contexto.strokeStyle = borde;
+                        contexto.lineWidth = anchoBorde;
+                        contexto.stroke();
+                    }
+                }
+            };
+
+            contexto.fillStyle = '#ffffff';
+            contexto.fillRect(0, 0, canvas.width, canvas.height);
+            const cantidades = new Array(rangos.length).fill(0);
+            let sinClasificar = 0;
+            for (const layer of parcelas) {
+                const feature = layer.feature;
+                const geometry = feature && feature.geometry;
+                if (!geometry) continue;
+                const padron = normalizarPadron((feature.properties || {}).NRO_RENTA || '');
+                const dato = superficies.get(padron);
+                const rango = dato
+                    ? rangos.find((item) => item.indice === dato.grupo) || rangoSuperficieCoincidente(dato.SUP_TER, rangos)
+                    : null;
+                if (!rango) sinClasificar++;
+                else cantidades[rango.indice]++;
+                const color = rango ? COLORES_SUPERFICIE_INFORME[rango.indice] : '#d8dee5';
+                dibujarGeometria(geometry, color, '#ffffff', 1.15);
+            }
+
+            for (const geometry of geometriaEjido) {
+                dibujarGeometria(geometry, null, '#24718d', 4);
+            }
+
+            const metrosPorPixel = 1 / escala;
+            const largoMaximo = anchoUtil * 0.4 * metrosPorPixel;
+            const potencia = Math.pow(10, Math.floor(Math.log10(largoMaximo)));
+            const escalasPosibles = [1, 2, 5, 10].map((factor) => factor * potencia);
+            const largoBarra = largoMaximo >= 4000
+                ? 4000
+                : escalasPosibles.filter((valor) => valor <= largoMaximo).pop() || potencia;
+            const medioBarra = largoBarra / 2;
+            const xBarra = margen.izquierda;
+            const yBarra = canvas.height - 70;
+            const anchoBarra = largoBarra * escala;
+            contexto.fillStyle = '#ffffff';
+            contexto.fillRect(xBarra - 10, yBarra - 50, anchoBarra + 40, 100);
+            contexto.fillStyle = '#1e293b';
+            contexto.fillRect(xBarra, yBarra, anchoBarra / 2, 16);
+            contexto.fillStyle = '#ffffff';
+            contexto.fillRect(xBarra + anchoBarra / 2, yBarra, anchoBarra / 2, 16);
+            contexto.strokeStyle = '#1e293b';
+            contexto.lineWidth = 3;
+            contexto.strokeRect(xBarra, yBarra, anchoBarra, 16);
+            contexto.fillStyle = '#1e293b';
+            contexto.font = '26px Arial';
+            contexto.textAlign = 'center';
+            contexto.fillText('0', xBarra, yBarra + 48);
+            contexto.fillText(`${new Intl.NumberFormat('es-AR').format(medioBarra / 1000)} km`, xBarra + anchoBarra / 2, yBarra + 48);
+            contexto.fillText(`${new Intl.NumberFormat('es-AR').format(largoBarra / 1000)} km`, xBarra + anchoBarra, yBarra + 48);
+
+            const norteX = canvas.width - 105;
+            const norteY = 135;
+            contexto.fillStyle = '#0f1b32';
+            contexto.beginPath();
+            contexto.moveTo(norteX, norteY - 55);
+            contexto.lineTo(norteX - 28, norteY + 20);
+            contexto.lineTo(norteX, norteY + 5);
+            contexto.lineTo(norteX + 28, norteY + 20);
+            contexto.closePath();
+            contexto.fill();
+            contexto.font = 'bold 28px Arial';
+            contexto.fillText('N', norteX, norteY - 65);
+
+            return {
+                imagen: canvas.toDataURL('image/png'),
+                cantidades,
+                sinClasificar
+            };
+        }
+
         function seleccionarMuestrasBarrio(parcelas, limite = 3) {
             const ordenadas = parcelas.slice().sort((a, b) =>
                 a.padron.localeCompare(b.padron, 'es', { numeric: true })
@@ -2868,7 +3110,7 @@ ${p._DEMO ? `
             return [...indices].map((indice) => ordenadas[indice]);
         }
 
-        function construirHtmlInformeParcelario(informe, muestras, superficies) {
+        function construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa) {
             const esc = (valor) => String(valor == null ? '' : valor)
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -2920,6 +3162,12 @@ ${p._DEMO ? `
                     </section>`).join('');
             const logo = `${window.location.origin}/img/escudoMerlo.jpg`;
             const sinBarrio = (informe.grupos.find((grupo) => grupo.nombre === 'Sin barrio asignado') || {}).cantidad || 0;
+            const filasLeyenda = rangos.map((rango) => `
+                <li>
+                    <span class="swatch" style="background:${COLORES_SUPERFICIE_INFORME[rango.indice]}"></span>
+                    <span>${esc(rango.etiqueta)}</span>
+                    <strong>${cantidad(mapa.cantidades[rango.indice])}</strong>
+                </li>`).join('');
 
             return `<!DOCTYPE html>
 <html lang="es">
@@ -2929,6 +3177,7 @@ ${p._DEMO ? `
 <title>Informe parcelario - Villa de Merlo</title>
 <style>
     @page { size: A4 portrait; margin: 13mm 12mm 16mm; }
+    @page mapa-apaisado { size: A4 landscape; margin: 9mm 10mm; }
     * { box-sizing: border-box; }
     body { margin: 0; color: #1e293b; font: 10px Arial, sans-serif; line-height: 1.4; }
     .toolbar { position: sticky; top: 0; z-index: 2; padding: 12px; text-align: center; background: #e2e8f0; }
@@ -2962,12 +3211,28 @@ ${p._DEMO ? `
     .barrio-card td { padding: 4px 3px; overflow-wrap: anywhere; }
     .nomenclatura { font-family: Consolas, monospace; font-size: 6.5px; }
     .footer-note { margin-top: 12px; color: #64748b; font-size: 8px; }
+    .mapa-page { page: mapa-apaisado; break-before: page; page-break-before: always; }
+    .mapa-page .topline { margin-bottom: 5px; }
+    .mapa-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 5px 0 8px; }
+    .mapa-heading h1 { margin: 0; color: #0f1b32; font-size: 16px; }
+    .mapa-heading p { margin: 2px 0 0; color: #475569; font-size: 8px; }
+    .mapa-heading img { width: 42px; height: 42px; object-fit: contain; }
+    .mapa-layout { display: grid; grid-template-columns: minmax(0, 1fr) 48mm; gap: 8mm; align-items: center; }
+    .mapa-imagen { display: block; width: 100%; max-height: 158mm; object-fit: contain; border: 1px solid #cbd5e1; }
+    .mapa-leyenda h2 { margin: 0 0 7px; color: #0f1b32; font-size: 10px; }
+    .mapa-leyenda ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .mapa-leyenda li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 5px; align-items: center; font-size: 7px; }
+    .mapa-leyenda li strong { text-align: right; font-size: 7px; }
+    .swatch { width: 11px; height: 11px; border: 1px solid #64748b; }
+    .mapa-leyenda .sin-clasificar { margin-top: 8px; padding-top: 7px; border-top: 1px solid #cbd5e1; }
+    .mapa-nota { margin-top: 6px; color: #64748b; font-size: 7px; }
     @media print {
         .toolbar { display: none; }
         .document { max-width: none; margin: 0; }
-        .topline, .title-band, .metric, th, .barrio-card h3 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .topline, .title-band, .metric, th, .barrio-card h3, .swatch { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         thead { display: table-header-group; }
         tr { break-inside: avoid; page-break-inside: avoid; }
+        .mapa-page { break-before: page; page-break-before: always; }
     }
 </style>
 </head>
@@ -3001,12 +3266,41 @@ ${p._DEMO ? `
         <p class="footer-note">Se incluyen hasta tres ejemplos por barrio, distribuidos entre los padrones disponibles. Las superficies se consultan en vivo en la base municipal; si una parcela no tiene registro, se indica expresamente.</p>
         <div class="details-grid">${seccionesDetalle}</div>
         <p class="footer-note">Fuente geométrica: Merlo2026Parcelas-V1.json · Propiedad horizontal: MerloPuntosNomeclaParcelasV2.json · Límites barriales: MerloBarrios.json.</p>
+        <section class="mapa-page">
+            <div class="topline"></div>
+            <header class="mapa-heading">
+                <div>
+                    <h1>Superficie de parcelas (m²)</h1>
+                    <p>Municipalidad de Villa de Merlo · Dirección de Catastro</p>
+                </div>
+                <img src="${esc(logo)}" alt="Escudo de Villa de Merlo">
+            </header>
+            <div class="mapa-layout">
+                <img class="mapa-imagen" src="${mapa.imagen}" alt="Plano municipal de parcelas clasificadas por superficie">
+                <aside class="mapa-leyenda">
+                    <h2>Superficie de parcelas (m²)</h2>
+                    <ul>${filasLeyenda}</ul>
+                    <ul class="sin-clasificar">
+                        <li><span class="swatch" style="background:#d8dee5"></span><span>Sin dato o fuera de rango</span><strong>${cantidad(mapa.sinClasificar)}</strong></li>
+                    </ul>
+                </aside>
+            </div>
+            <p class="mapa-nota">Cada color representa el rango indicado. Las parcelas sin coincidencia de padrón o con superficie fuera de los intervalos se muestran en gris. Fuente: plano parcelario GeoJSON y superficie territorial de la base municipal.</p>
+        </section>
     </main>
 </body>
 </html>`;
         }
 
         async function generarInformeParcelario() {
+            let rangos;
+            try {
+                rangos = obtenerRangosSuperficieInforme();
+            } catch (error) {
+                mostrarEstadoInforme(error.message || 'Revise los rangos de superficie.', true);
+                return;
+            }
+
             const ventana = window.open('', '_blank');
             if (!ventana) {
                 mostrarEstadoInforme('El navegador bloqueó la ventana del informe. Habilite las ventanas emergentes e inténtelo nuevamente.', true);
@@ -3015,7 +3309,7 @@ ${p._DEMO ? `
 
             const boton = document.getElementById('generar-informe');
             boton.disabled = true;
-            mostrarEstadoInforme('Preparando conteos y superficies desde la base municipal...');
+            mostrarEstadoInforme('Preparando el informe y consultando superficies de la base municipal...');
 
             try {
                 if (labelsData.length === 0 || barriosData.length === 0) {
@@ -3034,21 +3328,46 @@ ${p._DEMO ? `
                     throw new Error('No se encontraron padrones para consultar las superficies de muestra.');
                 }
 
-                const respuesta = await fetch(CONFIG.url('api/informe/superficies'), {
+                const opcionesPost = (body) => ({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ padrones })
+                    body: JSON.stringify(body)
                 });
-                if (!respuesta.ok) {
-                    const detalle = await respuesta.json().catch(() => ({}));
-                    throw new Error(detalle.error || 'No se pudieron consultar las superficies de la base municipal.');
+                const [respuestaMuestras, respuestaMapa] = await Promise.all([
+                    fetch(CONFIG.url('api/informe/superficies'), opcionesPost({ padrones })),
+                    fetch(CONFIG.url('api/informe/mapa-superficies'), opcionesPost({
+                        rangos: rangos.map(({ minimo, maximo, minimoExclusivo, maximoInclusivo }) => ({
+                            minimo,
+                            maximo,
+                            minimoExclusivo,
+                            maximoInclusivo
+                        }))
+                    }))
+                ]);
+                for (const [respuesta, mensaje] of [
+                    [respuestaMuestras, 'No se pudieron consultar las superficies de muestra.'],
+                    [respuestaMapa, 'No se pudieron consultar las superficies para el plano.']
+                ]) {
+                    if (!respuesta.ok) {
+                        const detalle = await respuesta.json().catch(() => ({}));
+                        throw new Error(detalle.error || mensaje);
+                    }
                 }
 
-                const superficiesDevueltas = await respuesta.json();
+                const [superficiesDevueltas, superficiesMapaDevueltas] = await Promise.all([
+                    respuestaMuestras.json(),
+                    respuestaMapa.json()
+                ]);
                 const superficies = new Map((Array.isArray(superficiesDevueltas) ? superficiesDevueltas : [])
                     .map((fila) => [normalizarPadron(fila.PADRON), fila.SUP_TER]));
+                const superficiesMapa = new Map((Array.isArray(superficiesMapaDevueltas) ? superficiesMapaDevueltas : [])
+                    .map((fila) => [normalizarPadron(fila.PADRON), {
+                        SUP_TER: fila.SUP_TER,
+                        grupo: Number(fila.GRUPO) - 1
+                    }]));
+                const mapa = dibujarMapaInformeParcelario(obtenerCapasParcelarias(), superficiesMapa, rangos);
                 ventana.document.open();
-                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies));
+                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa));
                 ventana.document.close();
                 mostrarEstadoInforme(`Informe listo: ${informe.totalParcelas} parcelas y ${informe.grupos.length} grupos por barrio.`);
             } catch (error) {
@@ -3207,6 +3526,7 @@ ${p._DEMO ? `
                 // los barrios (índigo). Solo se dibuja; no tiene ficha ni clic.
                 const dataEj = await traerDelPlano('ejido');
                 if (dataEj) {
+                    ejidoData = dataEj.features || [];
                     L.geoJSON(dataEj, {
                         style: { color: '#92400e', weight: 3, fillOpacity: 0, dashArray: '12, 6' },
                         interactive: false

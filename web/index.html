@@ -233,8 +233,40 @@
 
                     <div id="informe-panel-content" class="hidden bg-slate-50 border border-t-0 border-slate-200 rounded-none shadow-sm">
                         <p class="px-4 pt-4 pb-3 text-[10px] leading-relaxed text-slate-600">
-                            Informe parcelario con totales del plano, unidades PH y muestras de parcelas agrupadas por barrio.
+                            Informe parcelario con totales, unidades PH, muestras por barrio y un plano clasificado por superficie. Edite los rangos si lo necesita.
                         </p>
+                        <p class="px-4 pb-3 text-[9px] leading-relaxed text-slate-500">
+                            Use m²: en “A - B”, A se incluye y B se excluye. Los rangos no deben superponerse; use “&lt;” o “&gt;” para los extremos.
+                        </p>
+                        <div class="grid grid-cols-2 gap-2 px-4 pb-4">
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 1
+                                <input id="informe-rango-1" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="&lt; 350" inputmode="decimal" aria-label="Rango de superficie grupo 1">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 2
+                                <input id="informe-rango-2" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="350 - 500" inputmode="decimal" aria-label="Rango de superficie grupo 2">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 3
+                                <input id="informe-rango-3" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="500 - 800" inputmode="decimal" aria-label="Rango de superficie grupo 3">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 4
+                                <input id="informe-rango-4" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="800 - 1000" inputmode="decimal" aria-label="Rango de superficie grupo 4">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 5
+                                <input id="informe-rango-5" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="1000 - 1500" inputmode="decimal" aria-label="Rango de superficie grupo 5">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 6
+                                <input id="informe-rango-6" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="1500 - 2500" inputmode="decimal" aria-label="Rango de superficie grupo 6">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 7
+                                <input id="informe-rango-7" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="2500 - 5000" inputmode="decimal" aria-label="Rango de superficie grupo 7">
+                            </label>
+                            <label class="text-[8px] font-black text-slate-500 uppercase">Grupo 8
+                                <input id="informe-rango-8" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="5000 - 10000" inputmode="decimal" aria-label="Rango de superficie grupo 8">
+                            </label>
+                            <label class="col-span-2 text-[8px] font-black text-slate-500 uppercase">Grupo 9
+                                <input id="informe-rango-9" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="&gt; 10000" inputmode="decimal" aria-label="Rango de superficie grupo 9">
+                            </label>
+                        </div>
                         <div class="px-4 pb-4">
                             <button id="generar-informe" onclick="generarInformeParcelario()"
                                 class="w-full bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-wait text-white py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors shadow-lg">
@@ -412,7 +444,7 @@
 
     <!-- Logica del visor: mapa, ficha, plancheta y filtros -->
     <!-- config.js va primero: define a qué servidor le pide los datos app.js -->
-    <script src="js/config.js?v=21"></script>
-    <script src="js/app.js?v=21"></script>
+    <script src="js/config.js?v=22"></script>
+    <script src="js/app.js?v=22"></script>
 </body>
 </html>

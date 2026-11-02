@@ -8,7 +8,12 @@ El panel lateral incluye **Generar informe**: resume las parcelas dibujadas,
 las unidades de propiedad horizontal y una muestra de identificadores por
 barrio. También agrega un plano apaisado de parcelas clasificadas por nueve
 rangos de superficie, editables antes de generar el documento. Las superficies
-se consultan en vivo en la base municipal.
+se consultan en vivo en la base municipal. El botón **Imprimir solo plano**
+genera además una lámina vectorial ISO FULL 4A0 (2378 × 1682 mm), sin el resto
+del informe, para ampliar el PDF sin pixelar las parcelas.
+
+La capa opcional **Hidrografía** muestra los arroyos desde `web/datos/Arroyos.json`;
+está desactivada por defecto y se habilita desde el control de capas.
 
 ---
 

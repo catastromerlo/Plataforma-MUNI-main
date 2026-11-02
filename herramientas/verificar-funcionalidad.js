@@ -53,6 +53,7 @@ const CAPACIDADES = [
     ['Pintado de comercios por nomenclatura', 'pintarComerciosEnMapa'],
     ['Generación de informe parcelario por barrio', 'generarInformeParcelario'],
     ['Plano parcelario clasificado por superficie', 'dibujarMapaInformeParcelario'],
+    ['Impresión independiente del plano ISO FULL 4A0', 'imprimirPlanoSuperficie'],
     ['Limpiar filtros',              'limpiarFiltros'],
     ['Pintar resultados en el mapa', 'paintMapFromFilter'],
     ['Tabla de resultados',          'abrirModalResultados'],
@@ -61,6 +62,7 @@ const CAPACIDADES = [
     ['Etiquetas de nomenclatura',    'renderDynamicLabels'],
     ['Capa Edificado',               'Edificado2026'],
     ['Capa Barrios',                 'MerloBarrios'],
+    ['Capa Hidrografía',             'Arroyos.json'],
     ['Capa Manzanas',                'MerloPuntosNomeclaManzanas'],
     ['Capa Parcelas',                'Merlo2026Parcelas-V1'],
     ['Punto en polígono',            'isPointInPolygon']
@@ -74,7 +76,6 @@ const ENDPOINTS = [
     'api/comercios/opciones',
     'api/comercios',
     'api/informe/superficies',
-    'api/informe/mapa-superficies',
     'api/informe/mapa-superficies'
 ];
 

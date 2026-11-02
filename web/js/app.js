@@ -247,6 +247,7 @@
         const barriosLabelsLayer = L.layerGroup(); 
         const edificadoLayer = L.featureGroup(); 
         const ejidoLayer = L.featureGroup();
+        const hidrografiaLayer = L.featureGroup();
         
         let currentFeatureProps = null; 
         let selectedLayer = null; 
@@ -2929,12 +2930,6 @@ ${p._DEMO ? `
         }
 
         function dibujarMapaInformeParcelario(parcelas, superficies, rangos) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 2400;
-            canvas.height = 1450;
-            const contexto = canvas.getContext('2d');
-            if (!contexto) throw new Error('No se pudo preparar el plano de superficies para imprimir.');
-
             const geometriaEjido = ejidoData.map((feature) => feature.geometry).filter(Boolean);
             const geometriasParcelas = parcelas.map((layer) => layer.feature && layer.feature.geometry).filter(Boolean);
             const geometrias = geometriaEjido.concat(geometriasParcelas);
@@ -2979,9 +2974,11 @@ ${p._DEMO ? `
                 throw new Error('No se encontraron límites geográficos para dibujar el plano.');
             }
 
-            const margen = { izquierda: 95, derecha: 95, arriba: 85, abajo: 180 };
-            const anchoUtil = canvas.width - margen.izquierda - margen.derecha;
-            const altoUtil = canvas.height - margen.arriba - margen.abajo;
+            const ancho = 2000;
+            const alto = 1370;
+            const margen = { izquierda: 75, derecha: 75, arriba: 65, abajo: 155 };
+            const anchoUtil = ancho - margen.izquierda - margen.derecha;
+            const altoUtil = alto - margen.arriba - margen.abajo;
             const escala = Math.min(
                 anchoUtil / (limites.maxX - limites.minX),
                 altoUtil / (limites.maxY - limites.minY)
@@ -2991,44 +2988,35 @@ ${p._DEMO ? `
             const posicion = (coordenada) => {
                 const [x, y] = proyectar(coordenada);
                 return [
-                    canvas.width / 2 + (x - centroX) * escala,
-                    canvas.height / 2 - (y - centroY) * escala
+                    ancho / 2 + (x - centroX) * escala,
+                    alto / 2 - (y - centroY) * escala
                 ];
             };
-            const dibujarGeometria = (geometry, relleno, borde, anchoBorde) => {
+            const pathGeometria = (geometry) => {
                 const poligonos = geometry.type === 'Polygon'
                     ? [geometry.coordinates]
                     : geometry.type === 'MultiPolygon'
                         ? geometry.coordinates
                         : [];
+                const segmentos = [];
                 for (const anillos of poligonos) {
-                    contexto.beginPath();
                     for (const anillo of anillos) {
                         if (!anillo.length) continue;
                         const inicio = posicion(anillo[0]);
-                        contexto.moveTo(inicio[0], inicio[1]);
+                        segmentos.push(`M${inicio[0].toFixed(2)} ${inicio[1].toFixed(2)}`);
                         for (let indice = 1; indice < anillo.length; indice++) {
                             const punto = posicion(anillo[indice]);
-                            contexto.lineTo(punto[0], punto[1]);
+                            segmentos.push(`L${punto[0].toFixed(2)} ${punto[1].toFixed(2)}`);
                         }
-                        contexto.closePath();
-                    }
-                    if (relleno) {
-                        contexto.fillStyle = relleno;
-                        contexto.fill('evenodd');
-                    }
-                    if (borde) {
-                        contexto.strokeStyle = borde;
-                        contexto.lineWidth = anchoBorde;
-                        contexto.stroke();
+                        segmentos.push('Z');
                     }
                 }
+                return segmentos.join('');
             };
 
-            contexto.fillStyle = '#ffffff';
-            contexto.fillRect(0, 0, canvas.width, canvas.height);
             const cantidades = new Array(rangos.length).fill(0);
             let sinClasificar = 0;
+            const elementosParcelas = [];
             for (const layer of parcelas) {
                 const feature = layer.feature;
                 const geometry = feature && feature.geometry;
@@ -3041,11 +3029,16 @@ ${p._DEMO ? `
                 if (!rango) sinClasificar++;
                 else cantidades[rango.indice]++;
                 const color = rango ? COLORES_SUPERFICIE_INFORME[rango.indice] : '#d8dee5';
-                dibujarGeometria(geometry, color, '#ffffff', 1.15);
+                const path = pathGeometria(geometry);
+                if (path) {
+                    elementosParcelas.push(`<path d="${path}" fill="${color}" stroke="#fff" stroke-width="0.22" stroke-linejoin="round"/>`);
+                }
             }
 
+            const elementosEjido = [];
             for (const geometry of geometriaEjido) {
-                dibujarGeometria(geometry, null, '#24718d', 4);
+                const path = pathGeometria(geometry);
+                if (path) elementosEjido.push(`<path d="${path}" fill="none" stroke="#24718d" stroke-width="2.2" stroke-linejoin="round"/>`);
             }
 
             const metrosPorPixel = 1 / escala;
@@ -3057,39 +3050,34 @@ ${p._DEMO ? `
                 : escalasPosibles.filter((valor) => valor <= largoMaximo).pop() || potencia;
             const medioBarra = largoBarra / 2;
             const xBarra = margen.izquierda;
-            const yBarra = canvas.height - 70;
+            const yBarra = alto - 75;
             const anchoBarra = largoBarra * escala;
-            contexto.fillStyle = '#ffffff';
-            contexto.fillRect(xBarra - 10, yBarra - 50, anchoBarra + 40, 100);
-            contexto.fillStyle = '#1e293b';
-            contexto.fillRect(xBarra, yBarra, anchoBarra / 2, 16);
-            contexto.fillStyle = '#ffffff';
-            contexto.fillRect(xBarra + anchoBarra / 2, yBarra, anchoBarra / 2, 16);
-            contexto.strokeStyle = '#1e293b';
-            contexto.lineWidth = 3;
-            contexto.strokeRect(xBarra, yBarra, anchoBarra, 16);
-            contexto.fillStyle = '#1e293b';
-            contexto.font = '26px Arial';
-            contexto.textAlign = 'center';
-            contexto.fillText('0', xBarra, yBarra + 48);
-            contexto.fillText(`${new Intl.NumberFormat('es-AR').format(medioBarra / 1000)} km`, xBarra + anchoBarra / 2, yBarra + 48);
-            contexto.fillText(`${new Intl.NumberFormat('es-AR').format(largoBarra / 1000)} km`, xBarra + anchoBarra, yBarra + 48);
-
-            const norteX = canvas.width - 105;
+            const escalaSvg = `
+                <g fill="#1e293b" stroke="#1e293b" stroke-width="2">
+                    <rect x="${xBarra}" y="${yBarra}" width="${anchoBarra / 2}" height="12"/>
+                    <rect x="${xBarra + anchoBarra / 2}" y="${yBarra}" width="${anchoBarra / 2}" height="12" fill="#fff"/>
+                    <rect x="${xBarra}" y="${yBarra}" width="${anchoBarra}" height="12" fill="none"/>
+                </g>
+                <g fill="#1e293b" font-family="Arial,sans-serif" font-size="24" text-anchor="middle">
+                    <text x="${xBarra}" y="${yBarra + 42}">0</text>
+                    <text x="${xBarra + anchoBarra / 2}" y="${yBarra + 42}">${new Intl.NumberFormat('es-AR').format(medioBarra / 1000)} km</text>
+                    <text x="${xBarra + anchoBarra}" y="${yBarra + 42}">${new Intl.NumberFormat('es-AR').format(largoBarra / 1000)} km</text>
+                </g>`;
+            const norteX = ancho - 100;
             const norteY = 135;
-            contexto.fillStyle = '#0f1b32';
-            contexto.beginPath();
-            contexto.moveTo(norteX, norteY - 55);
-            contexto.lineTo(norteX - 28, norteY + 20);
-            contexto.lineTo(norteX, norteY + 5);
-            contexto.lineTo(norteX + 28, norteY + 20);
-            contexto.closePath();
-            contexto.fill();
-            contexto.font = 'bold 28px Arial';
-            contexto.fillText('N', norteX, norteY - 65);
+            const flechaNorte = `<g fill="#0f1b32">
+                <path d="M${norteX} ${norteY - 55} L${norteX - 28} ${norteY + 20} L${norteX} ${norteY + 5} L${norteX + 28} ${norteY + 20} Z"/>
+                <text x="${norteX}" y="${norteY - 68}" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="700">N</text>
+            </g>`;
 
             return {
-                imagen: canvas.toDataURL('image/png'),
+                svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Plano parcelario clasificado por superficie">
+                    <rect width="${ancho}" height="${alto}" fill="#fff"/>
+                    <g>${elementosParcelas.join('')}</g>
+                    <g>${elementosEjido.join('')}</g>
+                    ${escalaSvg}
+                    ${flechaNorte}
+                </svg>`,
                 cantidades,
                 sinClasificar
             };
@@ -3218,7 +3206,8 @@ ${p._DEMO ? `
     .mapa-heading p { margin: 2px 0 0; color: #475569; font-size: 8px; }
     .mapa-heading img { width: 42px; height: 42px; object-fit: contain; }
     .mapa-layout { display: grid; grid-template-columns: minmax(0, 1fr) 48mm; gap: 8mm; align-items: center; }
-    .mapa-imagen { display: block; width: 100%; max-height: 158mm; object-fit: contain; border: 1px solid #cbd5e1; }
+    .mapa-svg-container { display: block; width: 100%; max-height: 158mm; border: 1px solid #cbd5e1; }
+    .mapa-svg-container svg { display: block; width: 100%; max-height: 158mm; }
     .mapa-leyenda h2 { margin: 0 0 7px; color: #0f1b32; font-size: 10px; }
     .mapa-leyenda ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
     .mapa-leyenda li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 5px; align-items: center; font-size: 7px; }
@@ -3276,7 +3265,7 @@ ${p._DEMO ? `
                 <img src="${esc(logo)}" alt="Escudo de Villa de Merlo">
             </header>
             <div class="mapa-layout">
-                <img class="mapa-imagen" src="${mapa.imagen}" alt="Plano municipal de parcelas clasificadas por superficie">
+                <div class="mapa-svg-container">${mapa.svg}</div>
                 <aside class="mapa-leyenda">
                     <h2>Superficie de parcelas (m²)</h2>
                     <ul>${filasLeyenda}</ul>
@@ -3290,6 +3279,167 @@ ${p._DEMO ? `
     </main>
 </body>
 </html>`;
+        }
+
+        function construirHtmlPlanoSuperficie(mapa, rangos) {
+            const esc = (valor) => String(valor == null ? '' : valor)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+            const cantidad = (valor) => new Intl.NumberFormat('es-AR').format(valor);
+            const filasLeyenda = rangos.map((rango) => `
+                <li>
+                    <span class="swatch" style="background:${COLORES_SUPERFICIE_INFORME[rango.indice]}"></span>
+                    <span>${esc(rango.etiqueta)}</span>
+                    <strong>${cantidad(mapa.cantidades[rango.indice])}</strong>
+                </li>`).join('');
+            const logo = `${window.location.origin}/img/escudoMerlo.jpg`;
+
+            return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plano de superficies - ISO FULL 4A0</title>
+<style>
+    @page { size: 2378mm 1682mm; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; color: #172033; font-family: Arial, sans-serif; }
+    .toolbar { position: sticky; top: 0; z-index: 2; padding: 12px; text-align: center; background: #e2e8f0; }
+    .toolbar button { border: 0; padding: 10px 24px; background: #075985; color: #fff; font-weight: 800; cursor: pointer; }
+    .sheet { width: min(100%, 1800px); min-height: 100vh; margin: 0 auto; padding: 28px; background: #fff; }
+    .topline { height: 8px; margin-bottom: 20px; background: #13a9b8; }
+    .heading { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding: 8px 0 20px; }
+    .heading h1 { margin: 0; color: #0f1b32; font-size: 30px; }
+    .heading p { margin: 8px 0 0; color: #475569; font-size: 16px; }
+    .heading img { width: 90px; height: 90px; object-fit: contain; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 24px; align-items: center; }
+    .map { min-width: 0; }
+    .map svg { display: block; width: 100%; height: auto; }
+    .legend { padding: 18px; border: 1px solid #cbd5e1; }
+    .legend h2 { margin: 0 0 18px; color: #0f1b32; font-size: 19px; line-height: 1.25; }
+    .legend ul { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+    .legend li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 15px; }
+    .legend li strong { text-align: right; font-size: 14px; }
+    .swatch { width: 24px; height: 24px; border: 1px solid #64748b; }
+    .unclassified { margin-top: 20px !important; padding-top: 18px !important; border-top: 1px solid #cbd5e1; }
+    .note { margin: 16px 0 0; color: #475569; font-size: 13px; }
+    @media print {
+        .toolbar { display: none; }
+        .sheet { width: 2378mm; height: 1682mm; min-height: 0; margin: 0; padding: 42mm 52mm; }
+        .topline { height: 8mm; margin-bottom: 14mm; }
+        .heading { height: 112mm; padding: 0 0 14mm; }
+        .heading h1 { font-size: 25mm; }
+        .heading p { margin-top: 5mm; font-size: 11mm; }
+        .heading img { width: 82mm; height: 82mm; }
+        .layout { height: 1395mm; grid-template-columns: minmax(0, 1fr) 270mm; gap: 30mm; }
+        .map { display: flex; align-items: center; justify-content: center; height: 100%; }
+        .map svg { width: 100%; max-height: 100%; }
+        .legend { padding: 16mm; }
+        .legend h2 { margin-bottom: 16mm; font-size: 18mm; }
+        .legend ul { gap: 14mm; }
+        .legend li { grid-template-columns: 24mm minmax(0, 1fr) auto; gap: 9mm; font-size: 14mm; }
+        .legend li strong { font-size: 13mm; }
+        .swatch { width: 22mm; height: 22mm; }
+        .unclassified { margin-top: 18mm !important; padding-top: 16mm !important; }
+        .note { margin-top: 12mm; font-size: 9mm; }
+        .topline, .swatch { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+</style>
+</head>
+<body>
+    <div class="toolbar"><button type="button" onclick="window.print()">Imprimir / Guardar como PDF · ISO FULL 4A0</button></div>
+    <main class="sheet">
+        <div class="topline"></div>
+        <header class="heading">
+            <div>
+                <h1>Superficie de parcelas (m²)</h1>
+                <p>Municipalidad de Villa de Merlo · Dirección de Catastro</p>
+            </div>
+            <img src="${esc(logo)}" alt="Escudo de Villa de Merlo">
+        </header>
+        <section class="layout">
+            <div class="map">${mapa.svg}</div>
+            <aside class="legend">
+                <h2>Superficie de parcelas (m²)</h2>
+                <ul>${filasLeyenda}</ul>
+                <ul class="unclassified">
+                    <li><span class="swatch" style="background:#d8dee5"></span><span>Sin dato o fuera de rango</span><strong>${cantidad(mapa.sinClasificar)}</strong></li>
+                </ul>
+            </aside>
+        </section>
+        <p class="note">Las parcelas se representan como geometría vectorial para conservar el detalle al ampliar el PDF. Escala gráfica: 0–4 km. Fuente: plano parcelario GeoJSON y superficie territorial de la base municipal.</p>
+    </main>
+    <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 600); });</script>
+</body>
+</html>`;
+        }
+
+        async function consultarSuperficiesParaPlano(rangos) {
+            const respuesta = await fetch(CONFIG.url('api/informe/mapa-superficies'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rangos: rangos.map(({ minimo, maximo, minimoExclusivo, maximoInclusivo }) => ({
+                        minimo,
+                        maximo,
+                        minimoExclusivo,
+                        maximoInclusivo
+                    }))
+                })
+            });
+            if (!respuesta.ok) {
+                const detalle = await respuesta.json().catch(() => ({}));
+                throw new Error(detalle.error || 'No se pudieron consultar las superficies para el plano.');
+            }
+
+            const registros = await respuesta.json();
+            return new Map((Array.isArray(registros) ? registros : [])
+                .map((fila) => [normalizarPadron(fila.PADRON), {
+                    SUP_TER: fila.SUP_TER,
+                    grupo: Number(fila.GRUPO) - 1
+                }]));
+        }
+
+        async function imprimirPlanoSuperficie() {
+            let rangos;
+            try {
+                rangos = obtenerRangosSuperficieInforme();
+            } catch (error) {
+                mostrarEstadoInforme(error.message || 'Revise los rangos de superficie.', true);
+                return;
+            }
+
+            const ventana = window.open('', '_blank');
+            if (!ventana) {
+                mostrarEstadoInforme('El navegador bloqueó la ventana del plano. Habilite las ventanas emergentes e inténtelo nuevamente.', true);
+                return;
+            }
+
+            const boton = document.getElementById('imprimir-plano-superficie');
+            boton.disabled = true;
+            mostrarEstadoInforme('Preparando el plano vectorial ISO FULL 4A0...');
+            try {
+                const parcelas = obtenerCapasParcelarias();
+                if (parcelas.length === 0) {
+                    throw new Error('Espere a que cargue el plano parcelario antes de imprimir.');
+                }
+
+                const superficies = await consultarSuperficiesParaPlano(rangos);
+                const mapa = dibujarMapaInformeParcelario(parcelas, superficies, rangos);
+                ventana.document.open();
+                ventana.document.write(construirHtmlPlanoSuperficie(mapa, rangos));
+                ventana.document.close();
+                mostrarEstadoInforme('Plano vectorial listo para imprimir en ISO FULL 4A0 (2378 × 1682 mm).');
+            } catch (error) {
+                ventana.close();
+                console.error('Error al preparar el plano parcelario:', error);
+                mostrarEstadoInforme(error.message || 'No se pudo preparar el plano parcelario.', true);
+            } finally {
+                boton.disabled = false;
+            }
         }
 
         async function generarInformeParcelario() {
@@ -3333,38 +3483,18 @@ ${p._DEMO ? `
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                const [respuestaMuestras, respuestaMapa] = await Promise.all([
+                const [respuestaMuestras, superficiesMapa] = await Promise.all([
                     fetch(CONFIG.url('api/informe/superficies'), opcionesPost({ padrones })),
-                    fetch(CONFIG.url('api/informe/mapa-superficies'), opcionesPost({
-                        rangos: rangos.map(({ minimo, maximo, minimoExclusivo, maximoInclusivo }) => ({
-                            minimo,
-                            maximo,
-                            minimoExclusivo,
-                            maximoInclusivo
-                        }))
-                    }))
+                    consultarSuperficiesParaPlano(rangos)
                 ]);
-                for (const [respuesta, mensaje] of [
-                    [respuestaMuestras, 'No se pudieron consultar las superficies de muestra.'],
-                    [respuestaMapa, 'No se pudieron consultar las superficies para el plano.']
-                ]) {
-                    if (!respuesta.ok) {
-                        const detalle = await respuesta.json().catch(() => ({}));
-                        throw new Error(detalle.error || mensaje);
-                    }
+                if (!respuestaMuestras.ok) {
+                    const detalle = await respuestaMuestras.json().catch(() => ({}));
+                    throw new Error(detalle.error || 'No se pudieron consultar las superficies de muestra.');
                 }
 
-                const [superficiesDevueltas, superficiesMapaDevueltas] = await Promise.all([
-                    respuestaMuestras.json(),
-                    respuestaMapa.json()
-                ]);
+                const superficiesDevueltas = await respuestaMuestras.json();
                 const superficies = new Map((Array.isArray(superficiesDevueltas) ? superficiesDevueltas : [])
                     .map((fila) => [normalizarPadron(fila.PADRON), fila.SUP_TER]));
-                const superficiesMapa = new Map((Array.isArray(superficiesMapaDevueltas) ? superficiesMapaDevueltas : [])
-                    .map((fila) => [normalizarPadron(fila.PADRON), {
-                        SUP_TER: fila.SUP_TER,
-                        grupo: Number(fila.GRUPO) - 1
-                    }]));
                 const mapa = dibujarMapaInformeParcelario(obtenerCapasParcelarias(), superficiesMapa, rangos);
                 ventana.document.open();
                 ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa));
@@ -3446,6 +3576,11 @@ ${p._DEMO ? `
                 archivo: 'MerloEjidoMunicipal.json',
                 obligatorio: false,
                 descripcion: 'límite del ejido municipal'
+            },
+            hidrografia: {
+                archivo: 'Arroyos.json',
+                obligatorio: false,
+                descripcion: 'capa de hidrografía'
             }
         };
 
@@ -3473,7 +3608,11 @@ ${p._DEMO ? `
                         const r = await fetch(CONFIG.url(ruta) + sinCache);
                         if (!r.ok) continue;
                         const datos = await r.json();
-                        const cuantos = (datos.features || []).length;
+                        const cuantos = Array.isArray(datos.features)
+                            ? datos.features.length
+                            : Array.isArray(datos.geometries)
+                                ? datos.geometries.length
+                                : 0;
                         console.log(`✅ ${cfg.descripcion}: ${cuantos} elementos — ${ruta}`);
                         if (cuantos === 0) {
                             console.warn(`⚠️ ${nombre} no tiene ningún elemento adentro. ¿Se exportó vacío?`);
@@ -3531,6 +3670,14 @@ ${p._DEMO ? `
                         style: { color: '#92400e', weight: 3, fillOpacity: 0, dashArray: '12, 6' },
                         interactive: false
                     }).addTo(ejidoLayer);
+                }
+
+                const dataH = await traerDelPlano('hidrografia');
+                if (dataH) {
+                    L.geoJSON(dataH, {
+                        style: { color: '#38bdf8', weight: 2.5, opacity: 0.9 },
+                        interactive: false
+                    }).addTo(hidrografiaLayer);
                 }
 
                 const data = await traerDelPlano('parcelas');
@@ -3620,6 +3767,7 @@ ${p._DEMO ? `
 
                 const overlays = {
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Ejido Municipal</span>": ejidoLayer,
+                    "<span class='text-sm font-bold text-sky-600 ml-1'>Hidrografía</span>": hidrografiaLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Barrios</span>": barriosLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Plano Parcelario</span>": geojsonLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Edificado 2026</span>": edificadoLayer,

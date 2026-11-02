@@ -267,6 +267,12 @@
                                 <input id="informe-rango-9" class="informe-rango mt-1 w-full px-2 py-1.5 bg-white border border-slate-300 text-xs font-normal normal-case" value="&gt; 10000" inputmode="decimal" aria-label="Rango de superficie grupo 9">
                             </label>
                         </div>
+                        <div class="px-4 pb-2">
+                            <button id="imprimir-plano-superficie" onclick="imprimirPlanoSuperficie()"
+                                class="w-full bg-sky-800 hover:bg-sky-700 text-white py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors shadow-lg">
+                                Imprimir solo plano · ISO FULL 4A0
+                            </button>
+                        </div>
                         <div class="px-4 pb-4">
                             <button id="generar-informe" onclick="generarInformeParcelario()"
                                 class="w-full bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-wait text-white py-2 rounded-none text-[10px] font-black uppercase tracking-wider transition-colors shadow-lg">
@@ -444,7 +450,7 @@
 
     <!-- Logica del visor: mapa, ficha, plancheta y filtros -->
     <!-- config.js va primero: define a qué servidor le pide los datos app.js -->
-    <script src="js/config.js?v=22"></script>
-    <script src="js/app.js?v=22"></script>
+    <script src="js/config.js?v=24"></script>
+    <script src="js/app.js?v=24"></script>
 </body>
 </html>

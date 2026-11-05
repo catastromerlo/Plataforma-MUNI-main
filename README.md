@@ -222,7 +222,7 @@ docs/                    documentación
 
 ### Documentos que emite el visor
 
-Desde la ficha de una parcela se imprimen dos documentos distintos, para
+Desde la ficha de una parcela se imprimen tres documentos distintos, para
 trámites distintos:
 
 - **Plancheta catastral** — la ficha del inmueble con el plano de la parcela
@@ -231,9 +231,14 @@ trámites distintos:
   titular no registra infracciones. Es solo texto, sin mapa, y su redacción
   sale de la plantilla `LIBRE__DEUDA__DE__FALTAS.docx` de la Municipalidad:
   **no se modifica**, porque es un documento con valor administrativo.
+- **Certificado Final de Obra** — constancia de finalización de obra con los
+  datos catastrales de la parcela, en formato B5 apaisado. Incluye campos
+  editables para completar los datos del profesional, el plano aprobado, el
+  trámite, las superficies y las referencias de libros y folios antes de
+  imprimir o guardar como PDF.
 
-En los dos, los campos quedan editables antes de imprimir. En el libre de
-deuda, el N° de ticket se completa a mano.
+En los documentos con campos editables, estos se completan antes de imprimir.
+En el libre de deuda, el N° de ticket se completa a mano.
 
 > Cuando la parcela tiene más de un titular, el libre de deuda se completa con
 > el primero —está redactado en singular— y aparece un aviso **en pantalla, que

@@ -1293,7 +1293,9 @@
     }
     .marca img {
         flex: 0 0 auto; width: 17mm; height: 19mm; object-fit: contain;
-        mix-blend-mode: multiply;
+        background: #fff; padding: 1mm;
+        mix-blend-mode: normal; filter: none;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
     .municipalidad { flex: 0 0 38mm; color: #888b8c; font-size: 10px; line-height: 1.05; }
     .municipalidad strong { display: block; font-size: 12px; }
@@ -1346,14 +1348,19 @@
     select.editable { appearance: none; }
     input[type="date"].editable { width: 29mm; }
     input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
-    .firmas { display: flex; justify-content: space-between; gap: 18mm; margin: 4mm 0 3mm; }
-    .firma { width: 42%; padding-top: 4mm; border-top: 1px solid #56636a; text-align: center; font-size: 7px; line-height: 1.35; }
+    .firmas { display: flex; justify-content: space-between; gap: 18mm; margin: 11mm 0 3mm; }
+    .firma { width: 42%; padding-top: 0; border-top: 0; text-align: center; font-size: 7px; line-height: 1.35; }
+    .firma::before {
+        content: ""; display: block; width: 50%; margin: 0 auto 3mm;
+        border-top: 1px solid #56636a;
+    }
     .pie { border-top: 1px solid #b8c2c5; padding-top: 2mm; text-align: center; font-size: 7px; color: #52646b; }
     @media print {
         body { padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .acciones { display: none !important; }
         .certificado { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; box-shadow: none; overflow: visible; }
         .encabezado { margin: 0 0 4mm; padding-left: 4mm; padding-right: 4mm; }
+        .marca img { background: #fff; mix-blend-mode: normal; filter: none; }
         .propietarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .editable { background: transparent !important; }
     }

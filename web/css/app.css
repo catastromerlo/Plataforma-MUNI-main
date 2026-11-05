@@ -94,6 +94,21 @@
         }
         .print-btn:hover { background-color: #059669; transform: translateY(-2px); }
 
+        .print-action {
+            min-height: 42px; padding: 9px 14px; border-radius: 2px;
+            font-weight: 800; display: inline-flex; align-items: center; justify-content: center;
+            gap: 7px; transition: background-color 0.2s, box-shadow 0.2s, transform 0.2s;
+            box-shadow: 0 3px 9px rgba(15, 23, 42, 0.14);
+            text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;
+        }
+        .print-action .material-icons { font-size: 17px; }
+        .print-action:focus-visible { outline: 3px solid #fbbf24; outline-offset: 2px; }
+        .print-btn-certificado {
+            background-color: #0f766e; color: white;
+            box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
+        }
+        .print-btn-certificado:hover { background-color: #115e59; transform: translateY(-2px); }
+
         /* Boton del Libre Deuda de Faltas (Juzgado de Faltas).
            Mismo patron visual que .print-btn con otro color, para que se
            distinga de un vistazo de la Plancheta Catastral: son dos documentos

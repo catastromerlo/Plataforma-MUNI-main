@@ -33,7 +33,7 @@
          El ?v= es control de version: al desplegar un cambio se sube el
          numero para que ningun navegador siga usando la copia vieja.
          ================================================================== -->
-    <link rel="stylesheet" href="css/app.css?v=20">
+    <link rel="stylesheet" href="css/app.css?v=21">
 </head>
 <body class="bg-slate-50 flex flex-col">
 
@@ -367,13 +367,17 @@
                 </div> 
 
                 <div class="modal-footer p-4 bg-white border-t border-slate-200 flex-shrink-0 flex flex-wrap justify-end gap-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                    <button onclick="imprimirLibreDeuda()" class="print-btn-faltas px-6 py-3 text-xs w-auto">
-                        <span class="material-icons text-sm">gavel</span>
-                        Libre Deuda de Faltas
+                    <button type="button" onclick="imprimirLibreDeuda()" class="print-action print-btn-faltas" title="Generar Libre Deuda de Faltas" aria-label="Generar Libre Deuda de Faltas">
+                        <span class="material-icons" aria-hidden="true">gavel</span>
+                        <span>Libre deuda</span>
                     </button>
-                    <button onclick="imprimirFicha()" class="print-btn px-6 py-3 text-xs w-auto">
-                        <span class="material-icons text-sm">picture_as_pdf</span>
-                        Imprimir Plancheta Catastral
+                    <button type="button" onclick="imprimirFicha()" class="print-action print-btn" title="Imprimir Plancheta Catastral" aria-label="Imprimir Plancheta Catastral">
+                        <span class="material-icons" aria-hidden="true">picture_as_pdf</span>
+                        <span>Plancheta</span>
+                    </button>
+                    <button type="button" onclick="imprimirCertificadoFinalObra()" class="print-action print-btn-certificado" title="Generar Certificado Final de Obra" aria-label="Generar Certificado Final de Obra">
+                        <span class="material-icons" aria-hidden="true">description</span>
+                        <span>Final de obra</span>
                     </button>
                 </div>
 
@@ -451,6 +455,6 @@
     <!-- Logica del visor: mapa, ficha, plancheta y filtros -->
     <!-- config.js va primero: define a qué servidor le pide los datos app.js -->
     <script src="js/config.js?v=24"></script>
-    <script src="js/app.js?v=24"></script>
+    <script src="js/app.js?v=27"></script>
 </body>
 </html>

@@ -1196,6 +1196,281 @@
             }
         }
 
+        function imprimirCertificadoFinalObra() {
+            if (!currentFeatureProps) return;
+
+            const p = currentFeatureProps;
+            const esc = (v) => String(v === null || v === undefined ? '' : v)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const nomen = String(p.NOMENCLA || p.NOMENCLATURA || p.NOMENCLATU || '').trim();
+            let seccion = p.SECCION || '-';
+            let manzana = p.MANZANA || '-';
+            let parcela = p.PARCELA_ME || p.PARCELA || '-';
+
+            if (nomen.length >= 16) {
+                seccion = nomen.substring(0, 4);
+                manzana = nomen.substring(4, 10);
+                parcela = nomen.substring(10, 16);
+            } else {
+                if (seccion !== '-' && /^\d+$/.test(String(seccion).trim())) seccion = String(seccion).trim().padStart(4, '0');
+                if (manzana !== '-' && /^\d+$/.test(String(manzana).trim())) manzana = String(manzana).trim().padStart(6, '0');
+                if (parcela !== '-' && /^\d+$/.test(String(parcela).trim())) parcela = String(parcela).trim().padStart(6, '0');
+            }
+
+            const titulares = Array.isArray(p.TITULARES) && p.TITULARES.length
+                ? p.TITULARES
+                : (p.APELLIDO || p.NOMBRE
+                    ? [{ APELLIDO: p.APELLIDO, NOMBRE: p.NOMBRE }]
+                    : []);
+            const propietarios = titulares
+                .map(t => [t.APELLIDO, t.NOMBRE].filter(v => v && String(v).trim()).join(' ').trim())
+                .filter(Boolean);
+            const propietariosHtml = propietarios.length
+                ? propietarios.map((nombre, i) => `
+                    <div class="propietario">
+                        <span>${i === 0 ? 'Propiedad de' : 'Y de'}</span>
+                        <strong>${esc(nombre)}</strong>
+                    </div>`).join('')
+                : '<div class="propietario"><span>Propiedad de</span><strong>—</strong></div>';
+            const logoUrl = CONFIG.url('img/escudoMerlo.jpg');
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                alert('El navegador bloqueó la ventana del certificado. Habilitá las ventanas emergentes para este sitio y volvé a intentar.');
+                return;
+            }
+
+            printWindow.document.write(`
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificado Final de Obra - ${esc(p.NRO_RENTA || p.PADRON || '')}</title>
+<style>
+    @page { size: B5 landscape; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; padding: 62px 18px 18px; color: #17212b;
+        background: #e8edf0; font-family: Arial, Helvetica, sans-serif;
+    }
+    .acciones {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+        min-height: 48px; padding: 8px 18px; background: #064e3b; color: #fff;
+        display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,.2); font-size: 12px;
+    }
+    .acciones-grupo { display: flex; gap: 8px; }
+    .boton {
+        border: 0; padding: 9px 14px; cursor: pointer; font: 700 11px Arial, sans-serif;
+        text-transform: uppercase; letter-spacing: .04em;
+    }
+    .boton-imprimir { background: #fff; color: #064e3b; }
+    .boton-cerrar { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.6); }
+    .certificado {
+        position: relative; width: min(100%, 234mm); min-height: 160mm; margin: 0 auto;
+        padding: 0 8mm 6mm; background: #fff; border: 1px solid #8b969d;
+        box-shadow: 0 3px 14px rgba(15,23,42,.16); overflow: hidden;
+    }
+    .encabezado {
+        position: relative; display: flex; align-items: center; justify-content: flex-end;
+        min-height: 24mm; margin: 0 -8mm 4mm; padding: 2mm 8mm 4mm;
+        overflow: hidden; background: #050707; color: #fff;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .encabezado::before {
+        content: ""; position: absolute; z-index: 0; left: 0; bottom: 0;
+        width: 49%; height: 7mm; background: #00a6b8;
+        clip-path: polygon(0 0, 94% 0, 100% 100%, 0 100%);
+    }
+    .encabezado::after {
+        content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+        height: 1px; background: #00a6b8;
+    }
+    .marca {
+        position: relative; z-index: 1; display: flex; align-items: center; gap: 3mm;
+        width: 46%; padding-bottom: 2mm;
+    }
+    .marca img {
+        flex: 0 0 auto; width: 17mm; height: 19mm; object-fit: contain;
+        mix-blend-mode: multiply;
+    }
+    .municipalidad { flex: 0 0 38mm; color: #888b8c; font-size: 10px; line-height: 1.05; }
+    .municipalidad strong { display: block; font-size: 12px; }
+    .separador-marca { flex: 0 0 auto; height: 11mm; border-left: 1px solid #555b5c; margin: 0 1mm; }
+    .direccion { flex: 0 0 31mm; color: #888b8c; font-size: 10px; font-weight: 700; line-height: 1.15; }
+    h1 {
+        margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 1px solid #b7dadd;
+        color: #174e5a; font-size: 15px; letter-spacing: .08em; text-align: center;
+    }
+    .rotulo { font-size: 7px; color: #597078; font-weight: 700; text-transform: uppercase; }
+    .datos-catastrales {
+        display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+        border: 1px solid #8f9da2; margin-bottom: 3mm; background: #f7fafb;
+    }
+    .dato-cat { min-height: 12mm; padding: 1.5mm 1mm; text-align: center; border-right: 1px solid #aeb8bb; }
+    .dato-cat:last-child { border-right: 0; }
+    .dato-cat .rotulo { display: block; min-height: 5mm; font-size: 6.5px; }
+    .dato-cat strong { display: block; overflow-wrap: anywhere; font-size: 9px; }
+    .linea-identificacion {
+        display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+        gap: 2mm 5mm; align-items: center; margin: 0 0 3mm; font-size: 8.5px;
+        padding: 2mm 3mm; border-left: 2px solid #00a6b8; background: #f2f7f7;
+    }
+    .propietarios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1mm 4mm; }
+    .propietario { display: flex; align-items: baseline; gap: 2mm; min-width: 0; }
+    .propietario span { flex: 0 0 auto; color: #52646b; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+    .propietario strong { min-width: 0; overflow-wrap: anywhere; }
+    .dato-linea { display: flex; align-items: baseline; gap: 2px; min-width: 0; }
+    .dato-linea strong { overflow-wrap: anywhere; }
+    .texto { font-size: 8.5px; line-height: 1.55; text-align: justify; }
+    .texto p { margin: 0 0 2.5mm; }
+    .parrafo-titulo {
+        display: block; margin-bottom: .7mm; color: #174e5a;
+        font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+    }
+    .editable {
+        display: inline-block; vertical-align: baseline; min-width: 22mm; height: 5mm;
+        padding: 0 1mm; border: 0; border-bottom: 1px dotted #647780; border-radius: 0;
+        outline: none; background: transparent; color: inherit; font: inherit;
+    }
+    .editable:focus { background: #fef9c3; }
+    .editable.nombre { min-width: 43mm; }
+    .editable.libro { min-width: 13mm; }
+    .editable.folio { min-width: 13mm; }
+    .editable.bajo { min-width: 13mm; }
+    .editable.fecha { min-width: 25mm; }
+    .editable.unidades { min-width: 12mm; }
+    .editable.destino { min-width: 30mm; }
+    .editable.superficie { min-width: 18mm; }
+    select.editable { appearance: none; }
+    input[type="date"].editable { width: 29mm; }
+    input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
+    .firmas { display: flex; justify-content: space-between; gap: 18mm; margin: 4mm 0 3mm; }
+    .firma { width: 42%; padding-top: 4mm; border-top: 1px solid #56636a; text-align: center; font-size: 7px; line-height: 1.35; }
+    .pie { border-top: 1px solid #b8c2c5; padding-top: 2mm; text-align: center; font-size: 7px; color: #52646b; }
+    @media print {
+        body { padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .acciones { display: none !important; }
+        .certificado { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; box-shadow: none; overflow: visible; }
+        .encabezado { margin: 0 0 4mm; padding-left: 4mm; padding-right: 4mm; }
+        .propietarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .editable { background: transparent !important; }
+    }
+    @media screen and (max-width: 700px) {
+        .acciones { align-items: flex-start; }
+        .acciones > span { display: none; }
+        .certificado { min-height: 0; padding: 0 20px 20px; }
+        .encabezado { margin: 0 -20px 16px; }
+        .marca { width: 100%; justify-content: center; gap: 10px; }
+        .marca img { width: 48px; height: 52px; }
+        .municipalidad, .direccion { font-size: 9px; }
+        .municipalidad strong { font-size: 10px; }
+        .datos-catastrales { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .dato-cat:nth-child(4) { border-right: 0; }
+        .dato-cat:nth-child(n+5) { border-top: 1px solid #aeb8bb; }
+        .linea-identificacion { grid-template-columns: 1fr; }
+        .propietarios { grid-template-columns: 1fr; }
+        .texto { line-height: 2.2; }
+    }
+</style>
+</head>
+<body>
+    <div class="acciones">
+        <span>Certificado listo. Para guardar como PDF, elegí <strong>Guardar como PDF</strong> en el destino de impresión.</span>
+        <div class="acciones-grupo">
+            <button type="button" class="boton boton-imprimir" onclick="window.print()">Imprimir / Guardar PDF</button>
+            <button type="button" class="boton boton-cerrar" onclick="window.close()">Cerrar</button>
+        </div>
+    </div>
+    <main class="certificado">
+        <header class="encabezado">
+            <div class="marca">
+                <img src="${esc(logoUrl)}" alt="Escudo de Villa de Merlo">
+                <div class="municipalidad">Municipalidad de<strong>Villa de Merlo</strong></div>
+                <span class="separador-marca" aria-hidden="true"></span>
+                <div class="direccion">Dirección de<br>Obras Privadas</div>
+            </div>
+        </header>
+        <h1>CERTIFICADO DE FINAL DE OBRA</h1>
+        <section class="datos-catastrales" aria-label="Datos catastrales de la parcela">
+            <div class="dato-cat"><span class="rotulo">Sección</span><strong>${esc(seccion)}</strong></div>
+            <div class="dato-cat"><span class="rotulo">Manzana</span><strong>${esc(manzana)}</strong></div>
+            <div class="dato-cat"><span class="rotulo">Parcela</span><strong>${esc(parcela)}</strong></div>
+            <div class="dato-cat"><span class="rotulo">Zona</span><strong>${esc(p.ZONIFICACION || p.CONCEPTO || '-')}</strong></div>
+            <div class="dato-cat"><span class="rotulo">N° de Contribuyente</span><strong>${esc(p.CUENTA || '-')}</strong></div>
+            <div class="dato-cat"><span class="rotulo">N° Padrón</span><strong>${esc(p.NRO_RENTA || p.PADRON || '-')}</strong></div>
+            <div class="dato-cat"><span class="rotulo">N° Exp. digital</span><input class="editable" aria-label="Número de expediente digital"></div>
+        </section>
+        <section class="linea-identificacion" aria-label="Titular y domicilio">
+            <div class="propietarios">${propietariosHtml}</div>
+            <span class="dato-linea">Ubicado en calle <strong>${esc(p.CALLE1 || '—')} ${p.NRO ? `N° ${esc(p.NRO)}` : ''}</strong></span>
+        </section>
+        <section class="texto">
+            <p>
+                <span class="parrafo-titulo">Datos profesionales y plano aprobado</span>
+                Se hace constar que la Obra gestionada por el Profesional
+                <input class="editable nombre" aria-label="Nombre del profesional">
+                Título
+                <select class="editable" aria-label="Título del profesional">
+                    <option value="">Seleccionar</option>
+                    <option>M.M.O.</option>
+                    <option>Ing. Civil</option>
+                    <option>Arquitecto</option>
+                    <option>Tec. Constructor</option>
+                </select>
+                Matrícula N° <input class="editable" aria-label="Matrícula profesional">
+                en virtud del Plano
+                <select class="editable" aria-label="Tipo de plano">
+                    <option value="">Seleccionar</option>
+                    <option>De obra nueva</option>
+                    <option>Ampliación</option>
+                    <option>Relevamiento</option>
+                </select>.
+            </p>
+            <p>
+                Aprobado e inscripto en Libro N° <input class="editable libro" aria-label="Número de libro de edificaciones">
+                de edificaciones de la Municipalidad de Villa de Merlo, Pcia. San Luis; en FOLIO N°
+                <input class="editable folio" aria-label="Folio del libro de edificaciones">
+                BAJO N° <input class="editable bajo" aria-label="Bajo del libro de edificaciones">
+                con Fecha <input type="date" class="editable fecha" aria-label="Fecha del libro de edificaciones">.
+            </p>
+            <p>
+                Se encuentra terminada, de acuerdo a plano presentado y aprobado en trámite mencionado y dando
+                cumplimiento a las disposiciones del reglamento y las legislaciones vigentes, reuniendo las condiciones necesarias para ser habilitadas.
+            </p>
+            <p>
+                <span class="parrafo-titulo">Certificación de final de obra</span>
+                Por lo tanto se extiende el presente Certificado, asentando trámite FINAL DE OBRA
+                <select class="editable" aria-label="Estado del trámite final de obra">
+                    <option value="">Seleccionar</option>
+                    <option>Total</option>
+                    <option>Parcial</option>
+                    <option>Conforme</option>
+                </select>
+                de <input class="editable unidades" aria-label="Unidades funcionales"> Unidades funcionales,
+                Destino <input class="editable destino" aria-label="Destino de la obra">,
+                con una superficie Construida Cubierta total de
+                <input class="editable superficie" aria-label="Superficie cubierta total"> M2,
+                semicubierta de <input class="editable superficie" aria-label="Superficie semicubierta"> M2
+                e impermeabilizada de <input class="editable superficie" aria-label="Superficie impermeabilizada"> M2.
+                En Libro N° 2 de Finales de Obra, en FOLIO N°
+                <input class="editable folio" aria-label="Folio del libro de finales de obra">
+                BAJO N° <input class="editable bajo" aria-label="Bajo del libro de finales de obra">
+                Fecha <input type="date" class="editable fecha" aria-label="Fecha del libro de finales de obra">.
+            </p>
+        </section>
+        <section class="firmas" aria-label="Firmas municipales">
+            <div class="firma">FIRMA Y ACLARACIÓN<br>Inspector de Obra<br>MUNICIPALIDAD DE VILLA DE MERLO</div>
+            <div class="firma">FIRMA Y ACLARACIÓN<br>Director Obras Privadas<br>MUNICIPALIDAD DE VILLA DE MERLO</div>
+        </section>
+        <footer class="pie">Villa de Merlo · Provincia de San Luis</footer>
+    </main>
+</body>
+</html>`);
+            printWindow.document.close();
+        }
+
         async function imprimirFicha() {
             if (!currentFeatureProps) return;
             closeModal();
@@ -3767,7 +4042,7 @@ ${p._DEMO ? `
 
                 const overlays = {
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Ejido Municipal</span>": ejidoLayer,
-                    "<span class='text-sm font-bold text-sky-600 ml-1'>Hidrografía</span>": hidrografiaLayer,
+                    "<span class='text-sm font-bold text-slate-700 ml-1'>Hidrografía</span>": hidrografiaLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Barrios</span>": barriosLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Plano Parcelario</span>": geojsonLayer,
                     "<span class='text-sm font-bold text-slate-700 ml-1'>Edificado 2026</span>": edificadoLayer,

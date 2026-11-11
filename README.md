@@ -5,11 +5,15 @@ Mapa interactivo sobre Leaflet, con la ficha catastral de cada parcela
 consultada en vivo contra la base municipal.
 
 El panel lateral incluye **Generar informe**: resume las parcelas dibujadas,
-las unidades de propiedad horizontal y una muestra de identificadores por
-barrio. También agrega un plano apaisado de parcelas clasificadas por nueve
-rangos de superficie, editables antes de generar el documento. Las superficies
-se consultan en vivo en la base municipal. El botón **Imprimir solo plano**
-genera además una lámina vectorial ISO FULL 4A0 (2378 × 1682 mm), sin el resto
+las unidades de propiedad horizontal por barrio y una muestra de identificadores.
+Incluye infografías de distribución de superficies por zonificación con la
+cantidad de parcelas en los mismos nueve rangos editables del panel y la media
+aritmética y la superficie exacta más frecuente marcadas sobre sus grupos
+correspondientes.
+El informe también genera un plano apaisado de parcelas clasificadas por esos
+nueve rangos. Las superficies se consultan en vivo en la base municipal. El
+botón **Imprimir solo plano** genera además una lámina vectorial ISO FULL 4A0
+(2378 × 1682 mm), sin el resto
 del informe, para ampliar el PDF sin pixelar las parcelas.
 
 La capa opcional **Hidrografía** muestra los arroyos desde `web/datos/Arroyos.json`;
@@ -166,7 +170,7 @@ explica qué hace.
 | Propiedad horizontal (elegir sub-unidad)    | `web/js/app.js` → `mostrarModalPH()`, `seleccionarPH()`, `procesarParcela()` |
 | Los **filtros de parcelas** (superficie, zona, barrio) | `web/js/app.js` → `aplicarFiltros()` + `server.js` → `/api/filtrar` |
 | Buscar **comercios por rubro** | `web/js/app.js` → `buscarComercios()` + `server.js` → `/api/comercios` |
-| Generar informe parcelario y plano por superficie | `web/js/app.js` → `generarInformeParcelario()` + `server.js` → `/api/informe/superficies` y `/api/informe/mapa-superficies` |
+| Generar informe parcelario y plano por superficie | `web/js/app.js` → `generarInformeParcelario()` + `server.js` → `/api/informe/superficies`, `/api/informe/distribucion-zonas` y `/api/informe/mapa-superficies` |
 | Qué datos trae la ficha de una parcela      | `servidor/server.js` → `/api/catastro`             |
 | **Cargar un plano nuevo** con más parcelas  | `web/js/app.js` → const `PLANO`, y `docs/actualizar-el-plano.md` |
 | A qué base de datos se conecta              | `servidor/.env` (se edita con `CONFIGURAR.bat`)    |

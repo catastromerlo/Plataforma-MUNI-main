@@ -3082,8 +3082,45 @@ ${p._DEMO ? `
 
             const grupos = new Map(barrios.map((barrio) => [
                 barrio.nombre,
-                { nombre: barrio.nombre, cantidad: 0, parcelas: [] }
+                { nombre: barrio.nombre, cantidad: 0, parcelas: [], unidadesPH: new Set() }
             ]));
+            const barrioParaPunto = (punto) => {
+                if (!punto) return '';
+                return (barrios.find((barrio) => {
+                    const bounds = barrio.bounds;
+                    return punto[0] >= bounds.minX && punto[0] <= bounds.maxX &&
+                        punto[1] >= bounds.minY && punto[1] <= bounds.maxY &&
+                        puntoEnGeometriaGeoJson(punto, barrio.geometry);
+                }) || {}).nombre || '';
+            };
+            const unidadesPHAsignadas = new Set();
+            for (const feature of labelsData) {
+                const props = feature.properties || {};
+                let tieneUnidadesPH = false;
+                for (let unidad = 2; unidad <= 30; unidad++) {
+                    if (String(props[`PADRON_${unidad}`] || '').trim()) {
+                        tieneUnidadesPH = true;
+                        break;
+                    }
+                }
+                if (!tieneUnidadesPH) continue;
+
+                const punto = feature.geometry && feature.geometry.type === 'Point'
+                    ? feature.geometry.coordinates
+                    : null;
+                const nombreBarrio = barrioParaPunto(punto);
+                const claveBarrio = nombreBarrio || 'Sin barrio asignado';
+                if (!grupos.has(claveBarrio)) {
+                    grupos.set(claveBarrio, { nombre: claveBarrio, cantidad: 0, parcelas: [], unidadesPH: new Set() });
+                }
+
+                for (let unidad = 1; unidad <= 30; unidad++) {
+                    const padron = normalizarPadron(props[`PADRON_${unidad}`] || '');
+                    if (!padron || unidadesPHAsignadas.has(padron)) continue;
+                    unidadesPHAsignadas.add(padron);
+                    grupos.get(claveBarrio).unidadesPH.add(padron);
+                }
+            }
             let sinNomenclatura = 0;
             const parcelas = obtenerCapasParcelarias();
             if (parcelas.length === 0) {
@@ -3105,19 +3142,10 @@ ${p._DEMO ? `
                 }
                 if (!nomenclaturaOriginal) sinNomenclatura++;
 
-                let nombreBarrio = '';
-                if (punto) {
-                    nombreBarrio = (barrios.find((barrio) => {
-                        const bounds = barrio.bounds;
-                        return punto[0] >= bounds.minX && punto[0] <= bounds.maxX &&
-                            punto[1] >= bounds.minY && punto[1] <= bounds.maxY &&
-                            puntoEnGeometriaGeoJson(punto, barrio.geometry);
-                    }) || {}).nombre || '';
-                }
-
+                const nombreBarrio = barrioParaPunto(punto);
                 const claveBarrio = nombreBarrio || 'Sin barrio asignado';
                 if (!grupos.has(claveBarrio)) {
-                    grupos.set(claveBarrio, { nombre: claveBarrio, cantidad: 0, parcelas: [] });
+                    grupos.set(claveBarrio, { nombre: claveBarrio, cantidad: 0, parcelas: [], unidadesPH: new Set() });
                 }
                 const grupo = grupos.get(claveBarrio);
                 grupo.cantidad++;
@@ -3132,7 +3160,8 @@ ${p._DEMO ? `
                 unidadesPH: unidadesPH.size,
                 sinNomenclatura,
                 grupos: [...grupos.values()]
-                    .filter((grupo) => grupo.cantidad > 0)
+                    .filter((grupo) => grupo.cantidad > 0 || grupo.unidadesPH.size > 0)
+                    .map((grupo) => ({ ...grupo, unidadesPH: grupo.unidadesPH.size }))
                     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
             };
         }
@@ -3380,7 +3409,103 @@ ${p._DEMO ? `
             return [...indices].map((indice) => ordenadas[indice]);
         }
 
-        function construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa) {
+        function prepararDistribucionesPorZona(registros, rangos) {
+            const zonas = new Map();
+            for (const fila of registros) {
+                const nombre = String(fila.ZONIFICACION || '').trim();
+                const indiceGrupo = Number(fila.GRUPO) - 1;
+                const cuenta = Number(fila.CANTIDAD);
+                const media = Number(fila.MEDIA);
+                const moda = Number(fila.MODA);
+                if (!nombre || !Number.isInteger(indiceGrupo) || indiceGrupo < 0 || indiceGrupo >= rangos.length ||
+                    !Number.isFinite(cuenta) || cuenta <= 0 ||
+                    !Number.isFinite(media) || media <= 0 ||
+                    !Number.isFinite(moda) || moda <= 0) continue;
+
+                if (!zonas.has(nombre)) {
+                    zonas.set(nombre, {
+                        nombre,
+                        media,
+                        moda,
+                        bins: rangos.map((rango) => ({ indice: rango.indice, cantidad: 0 }))
+                    });
+                }
+                const zona = zonas.get(nombre);
+                zona.bins[indiceGrupo].cantidad += cuenta;
+                zona.media = media;
+                zona.moda = moda;
+            }
+            return [...zonas.values()]
+                .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
+        }
+
+        function dibujarInfografiaZona(zona, rangos, formatoCantidad, formatoSuperficie, escapar) {
+            const ancho = 960;
+            const alto = 390;
+            const margen = { izquierda: 74, derecha: 24, arriba: 45, abajo: 77 };
+            const anchoGrafico = ancho - margen.izquierda - margen.derecha;
+            const altoGrafico = alto - margen.arriba - margen.abajo;
+            const maximoY = Math.max(1, ...zona.bins.map((bin) => bin.cantidad));
+            const escalaY = Math.ceil(maximoY / 5);
+            const dominioY = escalaY * 5;
+            const anchoBarra = anchoGrafico / rangos.length;
+            const x = (indice) => margen.izquierda + (indice + 0.5) * anchoBarra;
+            const y = (valor) => margen.arriba + altoGrafico - valor / dominioY * altoGrafico;
+            const lineasGuia = Array.from({ length: 6 }, (_, indice) => {
+                const valor = escalaY * indice;
+                const posicionY = y(valor);
+                return `<g>
+                    <line x1="${margen.izquierda}" y1="${posicionY}" x2="${ancho - margen.derecha}" y2="${posicionY}" stroke="#cbd5e1" stroke-width="1"/>
+                    <text x="${margen.izquierda - 10}" y="${posicionY + 4}" text-anchor="end" fill="#334155" font-size="12">${formatoCantidad(valor)}</text>
+                </g>`;
+            }).join('');
+            const etiquetasX = zona.bins.map((bin) => {
+                const rango = rangos[bin.indice];
+                return `<text x="${x(bin.indice)}" y="${alto - margen.abajo + 18}" text-anchor="middle" fill="#334155" font-size="11">${escapar(rango.etiqueta)}</text>`;
+            }).join('');
+            const barrasSvg = zona.bins.map((bin) => {
+                const altura = margen.arriba + altoGrafico - y(bin.cantidad);
+                return `<rect x="${(x(bin.indice) - anchoBarra / 2 + 1).toFixed(2)}" y="${y(bin.cantidad).toFixed(2)}" width="${Math.max(1, anchoBarra - 2).toFixed(2)}" height="${Math.max(0, altura).toFixed(2)}" fill="#4f81bd"/>`;
+            }).join('');
+            const rangoMedia = rangoSuperficieCoincidente(zona.media, rangos);
+            const rangoModa = rangoSuperficieCoincidente(zona.moda, rangos);
+            const mismoGrupoEstadistico = rangoMedia && rangoModa && rangoMedia.indice === rangoModa.indice;
+            const mediaX = rangoMedia ? x(rangoMedia.indice) - (mismoGrupoEstadistico ? 5 : 0) : null;
+            const modaX = rangoModa ? x(rangoModa.indice) + (mismoGrupoEstadistico ? 5 : 0) : null;
+            const etiquetaMediaX = mediaX === null
+                ? null
+                : Math.min(Math.max(mediaX + 10, margen.izquierda + 8), ancho - 170);
+            const etiquetaModaX = modaX === null
+                ? null
+                : Math.min(Math.max(modaX + 10, margen.izquierda + 8), ancho - 180);
+            const binPredominante = zona.bins.reduce((mayor, bin) =>
+                !mayor || bin.cantidad > mayor.cantidad ? bin : mayor, null);
+            const rangoPredominante = rangos[binPredominante.indice];
+            const descripcionPredominante = binPredominante
+                ? `${escapar(rangoPredominante.etiqueta)} m² (${formatoCantidad(binPredominante.cantidad)} parcelas)`
+                : 'Sin datos';
+
+            return `
+                <article class="zona-chart">
+                    <h3>Distribución - Zona ${escapar(zona.nombre)}</h3>
+                    <svg viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Distribución por los nueve rangos de superficie solicitados para la zona ${escapar(zona.nombre)}. Media ${formatoSuperficie(zona.media)} metros cuadrados. Superficie más frecuente ${formatoSuperficie(zona.moda)} metros cuadrados.">
+                        <text x="${ancho / 2}" y="25" text-anchor="middle" fill="#0f172a" font-size="19" font-weight="700">Distribución - Zona ${escapar(zona.nombre)}</text>
+                        ${lineasGuia}
+                        ${barrasSvg}
+                        ${mediaX === null ? '' : `<line x1="${mediaX.toFixed(2)}" y1="${margen.arriba}" x2="${mediaX.toFixed(2)}" y2="${margen.arriba + altoGrafico}" stroke="#ed9144" stroke-width="4" stroke-dasharray="12 9"/>`}
+                        ${etiquetaMediaX === null ? '' : `<text x="${etiquetaMediaX.toFixed(2)}" y="${margen.arriba + 18}" fill="#9a4f0a" font-size="15" font-weight="700">Media: ${formatoSuperficie(zona.media)} m²</text>`}
+                        ${modaX === null ? '' : `<line x1="${modaX.toFixed(2)}" y1="${margen.arriba}" x2="${modaX.toFixed(2)}" y2="${margen.arriba + altoGrafico}" stroke="#087e8b" stroke-width="4" stroke-dasharray="3 7"/>`}
+                        ${etiquetaModaX === null ? '' : `<text x="${etiquetaModaX.toFixed(2)}" y="${margen.arriba + 37}" fill="#075b63" font-size="15" font-weight="700">Moda: ${formatoSuperficie(zona.moda)} m²</text>`}
+                        <line x1="${margen.izquierda}" y1="${margen.arriba + altoGrafico}" x2="${ancho - margen.derecha}" y2="${margen.arriba + altoGrafico}" stroke="#64748b" stroke-width="1.5"/>
+                        ${etiquetasX}
+                        <text x="${ancho / 2}" y="${alto - 12}" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="700">Rango de superficie (m²)</text>
+                        <text transform="translate(18 ${margen.arriba + altoGrafico / 2}) rotate(-90)" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="700">Cantidad de parcelas</text>
+                    </svg>
+                    <p>Rango predominante: <strong>${descripcionPredominante}</strong> · Media: <strong>${formatoSuperficie(zona.media)} m²</strong>${rangoMedia ? ` (Grupo ${rangoMedia.indice + 1})` : ' (fuera de los rangos solicitados)'} · Superficie más frecuente: <strong>${formatoSuperficie(zona.moda)} m²</strong>${rangoModa ? ` (Grupo ${rangoModa.indice + 1})` : ' (fuera de los rangos solicitados)'}</p>
+                </article>`;
+        }
+
+        function construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa, distribucionesZonas) {
             const esc = (valor) => String(valor == null ? '' : valor)
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -3406,13 +3531,19 @@ ${p._DEMO ? `
                 <tr>
                     <td>${esc(grupo.nombre)}</td>
                     <td class="numero">${cantidad(grupo.cantidad)}</td>
-                    <td class="numero">${cantidad(grupo.muestras.length)}</td>
+                    <td class="numero">${cantidad(grupo.unidadesPH)}</td>
                 </tr>`).join('') + `
                 <tr class="total-row">
                     <td>Total general</td>
                     <td class="numero">${cantidad(informe.totalParcelas)}</td>
-                    <td class="numero">${cantidad(barriosConMuestra.reduce((total, grupo) => total + grupo.muestras.length, 0))}</td>
+                    <td class="numero">${cantidad(informe.unidadesPH)}</td>
                 </tr>`;
+            const infografiasZonas = distribucionesZonas.map((zona) =>
+                dibujarInfografiaZona(zona, rangos, cantidad, (valor) => new Intl.NumberFormat('es-AR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }).format(valor), esc)
+            ).join('');
             const seccionesDetalle = barriosConMuestra
                 .filter((grupo) => grupo.muestras.length > 0)
                 .map((grupo) => `
@@ -3472,6 +3603,11 @@ ${p._DEMO ? `
     .total-row { font-weight: 800; background: #e8f1f4; }
     .numero { text-align: right; white-space: nowrap; }
     .note { margin: 9px 0; padding: 8px 10px; border-left: 3px solid #13a9b8; background: #f0fdfa; color: #334155; font-size: 8px; }
+    .zona-chart-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .zona-chart { padding: 7px 9px; border: 1px solid #cbd5e1; break-inside: avoid; page-break-inside: avoid; }
+    .zona-chart h3 { margin: 0 0 2px; color: #0f1b32; font-size: 10px; }
+    .zona-chart svg { display: block; width: 100%; height: auto; }
+    .zona-chart p { margin: 2px 0 0; color: #475569; font-size: 8px; }
     .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
     .barrio-card { border: 1px solid #cbd5e1; break-inside: avoid; page-break-inside: avoid; }
     .barrio-card h3 { display: flex; justify-content: space-between; gap: 5px; margin: 0; padding: 6px 7px; background: #f1f5f9; color: #0f1b32; font-size: 9px; }
@@ -3504,6 +3640,7 @@ ${p._DEMO ? `
         thead { display: table-header-group; }
         tr { break-inside: avoid; page-break-inside: avoid; }
         .mapa-page { break-before: page; page-break-before: always; }
+        .zona-chart svg, .zona-chart-grid { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
 </style>
 </head>
@@ -3527,13 +3664,16 @@ ${p._DEMO ? `
         </section>
         <h2>1. Distribución de parcelas por barrio</h2>
         <table>
-            <thead><tr><th>Barrio</th><th class="numero">Parcelas en el plano</th><th class="numero">Ejemplos detallados</th></tr></thead>
+            <thead><tr><th>Barrio</th><th class="numero">Parcelas en el plano</th><th class="numero">Unidades funcionales PH</th></tr></thead>
             <tbody>${filasResumen}</tbody>
         </table>
         <p class="note">
-            El total de parcelas cuenta los polígonos del plano parcelario. La asignación por barrio se realiza con la ubicación de los puntos catastrales y los límites de barrios. ${cantidad(informe.sinNomenclatura)} parcelas del plano no tienen nomenclatura registrada; ${cantidad(sinBarrio)} no pudieron ubicarse dentro de un barrio.
+            El total de parcelas cuenta los polígonos del plano parcelario; las unidades funcionales PH se informan aparte y no se suman como parcelas adicionales. La asignación por barrio se realiza con la ubicación de los puntos catastrales y los límites de barrios. ${cantidad(informe.sinNomenclatura)} parcelas del plano no tienen nomenclatura registrada; ${cantidad(sinBarrio)} no pudieron ubicarse dentro de un barrio.
         </p>
-        <h2 class="detail-title">2. Muestra detallada de identificadores y nomenclaturas por barrio</h2>
+        <h2>2. Distribución de superficies por zona</h2>
+        <p class="note">Cada gráfico compara la cantidad de parcelas de la zona en los nueve rangos configurados en el panel. La línea naranja punteada señala el grupo que contiene la media aritmética; la línea celeste de puntos marca el grupo de la superficie exacta más frecuente (moda). Ambas estadísticas se calculan con las superficies incluidas en los rangos; en caso de empate de moda se muestra la menor superficie. También se destaca el rango con mayor cantidad de parcelas. Una parcela con frentes en más de una zona se contabiliza en cada zonificación correspondiente.</p>
+        <div class="zona-chart-grid">${infografiasZonas || '<p class="note">La base no devolvió parcelas con superficie y zona para graficar.</p>'}</div>
+        <h2 class="detail-title">3. Muestra detallada de identificadores y nomenclaturas por barrio</h2>
         <p class="footer-note">Se incluyen hasta tres ejemplos por barrio, distribuidos entre los padrones disponibles. Las superficies se consultan en vivo en la base municipal; si una parcela no tiene registro, se indica expresamente.</p>
         <div class="details-grid">${seccionesDetalle}</div>
         <p class="footer-note">Fuente geométrica: Merlo2026Parcelas-V1.json · Propiedad horizontal: MerloPuntosNomeclaParcelasV2.json · Límites barriales: MerloBarrios.json.</p>
@@ -3659,6 +3799,31 @@ ${p._DEMO ? `
 </html>`;
         }
 
+        async function consultarDistribucionesPorZona(rangos) {
+            const respuesta = await fetch(CONFIG.url('api/informe/distribucion-zonas'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rangos: rangos.map(({ minimo, maximo, minimoExclusivo, maximoInclusivo }) => ({
+                        minimo,
+                        maximo,
+                        minimoExclusivo,
+                        maximoInclusivo
+                    }))
+                })
+            });
+            if (!respuesta.ok) {
+                const detalle = await respuesta.json().catch(() => ({}));
+                throw new Error(detalle.error || 'No se pudo consultar la distribución por rangos y zona.');
+            }
+
+            const registros = await respuesta.json();
+            if (!Array.isArray(registros)) {
+                throw new Error('La respuesta de distribución por zona no tiene un formato válido.');
+            }
+            return prepararDistribucionesPorZona(registros, rangos);
+        }
+
         async function consultarSuperficiesParaPlano(rangos) {
             const respuesta = await fetch(CONFIG.url('api/informe/mapa-superficies'), {
                 method: 'POST',
@@ -3765,9 +3930,10 @@ ${p._DEMO ? `
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                const [respuestaMuestras, superficiesMapa] = await Promise.all([
+                const [respuestaMuestras, superficiesMapa, distribucionesZonas] = await Promise.all([
                     fetch(CONFIG.url('api/informe/superficies'), opcionesPost({ padrones })),
-                    consultarSuperficiesParaPlano(rangos)
+                    consultarSuperficiesParaPlano(rangos),
+                    consultarDistribucionesPorZona(rangos)
                 ]);
                 if (!respuestaMuestras.ok) {
                     const detalle = await respuestaMuestras.json().catch(() => ({}));
@@ -3779,7 +3945,7 @@ ${p._DEMO ? `
                     .map((fila) => [normalizarPadron(fila.PADRON), fila.SUP_TER]));
                 const mapa = dibujarMapaInformeParcelario(obtenerCapasParcelarias(), superficiesMapa, rangos);
                 ventana.document.open();
-                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa));
+                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa, distribucionesZonas));
                 ventana.document.close();
                 mostrarEstadoInforme(`Informe listo: ${informe.totalParcelas} parcelas y ${informe.grupos.length} grupos por barrio.`);
             } catch (error) {

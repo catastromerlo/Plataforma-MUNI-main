@@ -1028,15 +1028,10 @@ app.post('/api/informe/superficies', express.json({ limit: '32kb' }), async (req
     }
 });
 
-app.post('/api/informe/mapa-superficies', express.json({ limit: '8kb' }), async (req, res) => {
-    const activePool = getPool();
-    if (!activePool) {
-        return res.status(503).json({ error: 'La base municipal no está disponible para clasificar las superficies.' });
-    }
-
-    const rangosRecibidos = req.body && req.body.rangos;
+function validarRangosSuperficieInforme(rangosRecibidos, recurso = 'informe') {
     if (!Array.isArray(rangosRecibidos) || rangosRecibidos.length !== 9) {
-        return res.status(400).json({ error: 'El plano requiere exactamente nueve rangos de superficie.' });
+        const articulo = recurso === 'plano' ? 'El plano' : 'El informe';
+        return { error: `${articulo} requiere exactamente nueve rangos de superficie.` };
     }
 
     const rangos = [];
@@ -1051,7 +1046,7 @@ app.post('/api/informe/mapa-superficies', express.json({ limit: '8kb' }), async 
             (minimo !== null && maximo !== null && minimo >= maximo) ||
             typeof rango.minimoExclusivo !== 'boolean' ||
             typeof rango.maximoInclusivo !== 'boolean') {
-            return res.status(400).json({ error: `El rango ${indice + 1} no es válido.` });
+            return { error: `El rango ${indice + 1} no es válido.` };
         }
         rangos.push({
             minimo,
@@ -1072,27 +1067,126 @@ app.post('/api/informe/mapa-superficies', express.json({ limit: '8kb' }), async 
             const superior = Math.min(a.maximo === null ? Infinity : a.maximo, b.maximo === null ? Infinity : b.maximo);
             if (inferior < superior ||
                 (inferior === superior && contieneLimite(a, inferior) && contieneLimite(b, inferior))) {
-                return res.status(400).json({ error: `Los rangos ${primero + 1} y ${segundo + 1} se superponen.` });
+                return { error: `Los rangos ${primero + 1} y ${segundo + 1} se superponen.` };
             }
         }
+    }
+    return { rangos };
+}
+
+function construirCondicionesRangosSuperficie(request, rangos, columnaSuperficie) {
+    return rangos.map((rango, indice) => {
+        const partes = [];
+        if (rango.minimo !== null) {
+            const nombre = `minimo${indice}`;
+            request.input(nombre, sql.Float, rango.minimo);
+            partes.push(`${columnaSuperficie} ${rango.minimoExclusivo ? '>' : '>='} @${nombre}`);
+        }
+        if (rango.maximo !== null) {
+            const nombre = `maximo${indice}`;
+            request.input(nombre, sql.Float, rango.maximo);
+            partes.push(`${columnaSuperficie} ${rango.maximoInclusivo ? '<=' : '<'} @${nombre}`);
+        }
+        return `(${partes.join(' AND ')})`;
+    });
+}
+
+app.post('/api/informe/distribucion-zonas', express.json({ limit: '8kb' }), async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'La base municipal no está disponible para consultar superficies por zona.' });
+    }
+
+    const validacion = validarRangosSuperficieInforme(req.body && req.body.rangos);
+    if (validacion.error) {
+        return res.status(400).json({ error: validacion.error });
     }
 
     try {
         const request = activePool.request();
-        const condiciones = rangos.map((rango, indice) => {
-            const partes = [];
-            if (rango.minimo !== null) {
-                const nombre = `minimo${indice}`;
-                request.input(nombre, sql.Float, rango.minimo);
-                partes.push(`SUP_TER ${rango.minimoExclusivo ? '>' : '>='} @${nombre}`);
-            }
-            if (rango.maximo !== null) {
-                const nombre = `maximo${indice}`;
-                request.input(nombre, sql.Float, rango.maximo);
-                partes.push(`SUP_TER ${rango.maximoInclusivo ? '<=' : '<'} @${nombre}`);
-            }
-            return `(${partes.join(' AND ')})`;
-        });
+        const condiciones = construirCondicionesRangosSuperficie(request, validacion.rangos, 'SUPERFICIE');
+        const casos = condiciones.map((condicion, indice) => `WHEN ${condicion} THEN ${indice + 1}`).join('\n');
+        const resultado = await request.query(`
+            WITH ParcelasZona AS (
+                SELECT DISTINCT
+                    LTRIM(RTRIM(p.NRO_RENTA)) AS PADRON,
+                    p.SUP_TER AS SUPERFICIE,
+                    LTRIM(RTRIM(f.CONCEPTO)) AS ZONIFICACION
+                FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON p
+                INNER JOIN PROGRAM.dbo.VI_CPAR_FRENTES f
+                    ON LTRIM(RTRIM(f.NRO_RENTAS)) = LTRIM(RTRIM(p.NRO_RENTA))
+                WHERE p.NRO_RENTA IS NOT NULL
+                  AND LTRIM(RTRIM(p.NRO_RENTA)) <> ''
+                  AND f.CONCEPTO IS NOT NULL
+                  AND LTRIM(RTRIM(f.CONCEPTO)) <> ''
+                  AND p.SUP_TER > 0
+            ),
+            ParcelasClasificadas AS (
+                SELECT
+                    ZONIFICACION,
+                    SUPERFICIE,
+                    CASE ${casos} END AS GRUPO
+                FROM ParcelasZona
+            ),
+            Histograma AS (
+                SELECT
+                    ZONIFICACION,
+                    GRUPO,
+                    COUNT(*) AS CANTIDAD
+                FROM ParcelasClasificadas
+                WHERE GRUPO IS NOT NULL
+                GROUP BY ZONIFICACION, GRUPO
+            ),
+            Estadisticas AS (
+                SELECT ZONIFICACION, AVG(SUPERFICIE) AS MEDIA
+                FROM ParcelasClasificadas
+                WHERE GRUPO IS NOT NULL
+                GROUP BY ZONIFICACION
+            ),
+            FrecuenciaSuperficie AS (
+                SELECT ZONIFICACION, SUPERFICIE, COUNT(*) AS CANTIDAD
+                FROM ParcelasClasificadas
+                WHERE GRUPO IS NOT NULL
+                GROUP BY ZONIFICACION, SUPERFICIE
+            ),
+            ModaRankeada AS (
+                SELECT
+                    ZONIFICACION,
+                    SUPERFICIE AS MODA,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ZONIFICACION
+                        ORDER BY CANTIDAD DESC, SUPERFICIE ASC
+                    ) AS ORDEN
+                FROM FrecuenciaSuperficie
+            )
+            SELECT h.ZONIFICACION, h.GRUPO, h.CANTIDAD, e.MEDIA, m.MODA
+            FROM Histograma h
+            INNER JOIN Estadisticas e ON e.ZONIFICACION = h.ZONIFICACION
+            INNER JOIN ModaRankeada m ON m.ZONIFICACION = h.ZONIFICACION AND m.ORDEN = 1
+            ORDER BY h.ZONIFICACION, h.GRUPO
+        `);
+        res.json(resultado.recordset);
+    } catch (err) {
+        console.error('Error al consultar la distribución por rangos y zona del informe parcelario:', err);
+        res.status(500).json({ error: 'No se pudo consultar la distribución por rangos y zona.' });
+    }
+});
+
+app.post('/api/informe/mapa-superficies', express.json({ limit: '8kb' }), async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'La base municipal no está disponible para clasificar las superficies.' });
+    }
+
+    const validacion = validarRangosSuperficieInforme(req.body && req.body.rangos, 'plano');
+    if (validacion.error) {
+        return res.status(400).json({ error: validacion.error });
+    }
+    const rangos = validacion.rangos;
+
+    try {
+        const request = activePool.request();
+        const condiciones = construirCondicionesRangosSuperficie(request, rangos, 'SUP_TER');
         const casos = condiciones.map((condicion, indice) => `WHEN ${condicion} THEN ${indice + 1}`).join('\n');
         const resultado = await request.query(`
             SELECT DISTINCT

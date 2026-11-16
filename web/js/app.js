@@ -1248,7 +1248,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Certificado Final de Obra - ${esc(p.NRO_RENTA || p.PADRON || '')}</title>
 <style>
-    @page { size: B5 landscape; margin: 8mm; }
+    @page { size: A4 landscape; margin: 6mm; }
     * { box-sizing: border-box; }
     body {
         margin: 0; padding: 62px 18px 18px; color: #17212b;
@@ -1270,7 +1270,7 @@
     .certificado {
         position: relative; width: min(100%, 234mm); min-height: 160mm; margin: 0 auto;
         padding: 0 8mm 6mm; background: #fff; border: 1px solid #8b969d;
-        box-shadow: 0 3px 14px rgba(15,23,42,.16); overflow: hidden;
+        box-shadow: 0 3px 14px rgba(15,23,42,.16); overflow: hidden; font-size: 12px;
     }
     .encabezado {
         position: relative; display: flex; align-items: center; justify-content: flex-end;
@@ -1297,39 +1297,40 @@
         mix-blend-mode: normal; filter: none;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
-    .municipalidad { flex: 0 0 38mm; color: #888b8c; font-size: 10px; line-height: 1.05; }
-    .municipalidad strong { display: block; font-size: 12px; }
+    .municipalidad { flex: 0 0 38mm; color: #888b8c; font-size: 12px; line-height: 1.15; }
+    .municipalidad strong { display: block; font-size: inherit; }
     .separador-marca { flex: 0 0 auto; height: 11mm; border-left: 1px solid #555b5c; margin: 0 1mm; }
-    .direccion { flex: 0 0 31mm; color: #888b8c; font-size: 10px; font-weight: 700; line-height: 1.15; }
+    .direccion { flex: 0 0 31mm; color: #888b8c; font-size: 12px; font-weight: 700; line-height: 1.15; }
     h1 {
         margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 1px solid #b7dadd;
-        color: #174e5a; font-size: 15px; letter-spacing: .08em; text-align: center;
+        color: #174e5a; font-size: 12px; letter-spacing: .08em; text-align: center;
     }
-    .rotulo { font-size: 7px; color: #597078; font-weight: 700; text-transform: uppercase; }
+    .rotulo { font-size: 12px; color: #597078; font-weight: 700; text-transform: uppercase; }
     .datos-catastrales {
         display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
         border: 1px solid #8f9da2; margin-bottom: 3mm; background: #f7fafb;
     }
     .dato-cat { min-height: 12mm; padding: 1.5mm 1mm; text-align: center; border-right: 1px solid #aeb8bb; }
     .dato-cat:last-child { border-right: 0; }
-    .dato-cat .rotulo { display: block; min-height: 5mm; font-size: 6.5px; }
-    .dato-cat strong { display: block; overflow-wrap: anywhere; font-size: 9px; }
+    .dato-cat .rotulo { display: block; min-height: 5mm; font-size: 12px; }
+    .dato-cat strong { display: block; overflow-wrap: anywhere; font-size: 12px; }
+    .dato-cat .editable.expediente { width: 100%; min-width: 0; padding: 0; border: 0; text-align: center; font-weight: 700; }
     .linea-identificacion {
         display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-        gap: 2mm 5mm; align-items: center; margin: 0 0 3mm; font-size: 8.5px;
+        gap: 2mm 5mm; align-items: center; margin: 0 0 3mm; font-size: 12px;
         padding: 2mm 3mm; border-left: 2px solid #00a6b8; background: #f2f7f7;
     }
     .propietarios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1mm 4mm; }
     .propietario { display: flex; align-items: baseline; gap: 2mm; min-width: 0; }
-    .propietario span { flex: 0 0 auto; color: #52646b; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+    .propietario span { flex: 0 0 auto; color: #52646b; font-size: 12px; font-weight: 700; text-transform: uppercase; }
     .propietario strong { min-width: 0; overflow-wrap: anywhere; }
     .dato-linea { display: flex; align-items: baseline; gap: 2px; min-width: 0; }
     .dato-linea strong { overflow-wrap: anywhere; }
-    .texto { font-size: 8.5px; line-height: 1.55; text-align: justify; }
-    .texto p { margin: 0 0 2.5mm; }
+    .texto { font-size: 12px; line-height: 1.6; text-align: justify; }
+    .texto p { margin: 0 0 3mm; }
     .parrafo-titulo {
         display: block; margin-bottom: .7mm; color: #174e5a;
-        font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+        font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
     }
     .editable {
         display: inline-block; vertical-align: baseline; min-width: 22mm; height: 5mm;
@@ -1338,29 +1339,39 @@
     }
     .editable:focus { background: #fef9c3; }
     .editable.nombre { min-width: 43mm; }
-    .editable.libro { min-width: 13mm; }
-    .editable.folio { min-width: 13mm; }
-    .editable.bajo { min-width: 13mm; }
+    .editable.libro, .editable.folio, .editable.bajo { width: 5ch; min-width: 5ch; }
     .editable.fecha { min-width: 25mm; }
-    .editable.unidades { min-width: 12mm; }
-    .editable.destino { min-width: 30mm; }
-    .editable.superficie { min-width: 18mm; }
+    .editable.matricula { width: 5ch; min-width: 5ch; }
+    .editable.unidades { width: 3ch; min-width: 3ch; }
+    .editable.destino { width: calc(30mm + 20ch); min-width: calc(30mm + 20ch); }
+    .editable.superficie { width: 5ch; min-width: 5ch; }
     select.editable { appearance: none; }
     input[type="date"].editable { width: 29mm; }
     input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
     .firmas { display: flex; justify-content: space-between; gap: 18mm; margin: 11mm 0 3mm; }
-    .firma { width: 42%; padding-top: 0; border-top: 0; text-align: center; font-size: 7px; line-height: 1.35; }
+    .firma { width: 42%; padding-top: 0; border-top: 0; text-align: center; font-size: 12px; line-height: 1.35; }
     .firma::before {
         content: ""; display: block; width: 50%; margin: 0 auto 3mm;
         border-top: 1px solid #56636a;
     }
-    .pie { border-top: 1px solid #b8c2c5; padding-top: 2mm; text-align: center; font-size: 7px; color: #52646b; }
+    .pie { border-top: 1px solid #b8c2c5; padding-top: 2mm; text-align: center; font-size: 12px; color: #52646b; }
     @media print {
         body { padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .acciones { display: none !important; }
-        .certificado { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; box-shadow: none; overflow: visible; }
-        .encabezado { margin: 0 0 4mm; padding-left: 4mm; padding-right: 4mm; }
-        .marca img { background: #fff; mix-blend-mode: normal; filter: none; }
+        .certificado, .certificado * { font-size: 11px !important; }
+        .certificado { width: 100%; min-height: 0; margin: 0; padding: 0; border: 0; box-shadow: none; overflow: visible; }
+        .encabezado { min-height: 20mm; margin: 0 0 2mm; padding: 1mm 3mm 2mm; }
+        .marca { width: 42%; gap: 2mm; }
+        .marca img { width: 15mm; height: 17mm; background: #fff; mix-blend-mode: normal; filter: none; }
+        .municipalidad { flex-basis: 34mm; }
+        .direccion { flex-basis: 28mm; }
+        .datos-catastrales { margin-bottom: 2mm; }
+        .dato-cat { min-height: 10mm; padding: 1mm .7mm; }
+        .linea-identificacion { margin-bottom: 2mm; padding: 1mm 2mm; }
+        .texto { line-height: 1.35; }
+        .texto p { margin-bottom: 1.5mm; }
+        .firmas { margin: 5mm 0 2mm; }
+        .pie { padding-top: 1mm; }
         .propietarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .editable { background: transparent !important; }
     }
@@ -1371,14 +1382,14 @@
         .encabezado { margin: 0 -20px 16px; }
         .marca { width: 100%; justify-content: center; gap: 10px; }
         .marca img { width: 48px; height: 52px; }
-        .municipalidad, .direccion { font-size: 9px; }
-        .municipalidad strong { font-size: 10px; }
+        .municipalidad, .direccion { font-size: 12px; }
+        .municipalidad strong { font-size: inherit; }
         .datos-catastrales { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .dato-cat:nth-child(4) { border-right: 0; }
         .dato-cat:nth-child(n+5) { border-top: 1px solid #aeb8bb; }
         .linea-identificacion { grid-template-columns: 1fr; }
         .propietarios { grid-template-columns: 1fr; }
-        .texto { line-height: 2.2; }
+        .texto { line-height: 1.8; }
     }
 </style>
 </head>
@@ -1407,7 +1418,7 @@
             <div class="dato-cat"><span class="rotulo">Zona</span><strong>${esc(p.ZONIFICACION || p.CONCEPTO || '-')}</strong></div>
             <div class="dato-cat"><span class="rotulo">N° de Contribuyente</span><strong>${esc(p.CUENTA || '-')}</strong></div>
             <div class="dato-cat"><span class="rotulo">N° Padrón</span><strong>${esc(p.NRO_RENTA || p.PADRON || '-')}</strong></div>
-            <div class="dato-cat"><span class="rotulo">N° Exp. digital</span><input class="editable" aria-label="Número de expediente digital"></div>
+            <div class="dato-cat"><span class="rotulo">N° Exp. digital</span><input class="editable expediente" aria-label="Número de expediente digital"></div>
         </section>
         <section class="linea-identificacion" aria-label="Titular y domicilio">
             <div class="propietarios">${propietariosHtml}</div>
@@ -1426,7 +1437,7 @@
                     <option>Arquitecto</option>
                     <option>Tec. Constructor</option>
                 </select>
-                Matrícula N° <input class="editable" aria-label="Matrícula profesional">
+                Matrícula N° <input class="editable matricula" aria-label="Matrícula profesional">
                 en virtud del Plano
                 <select class="editable" aria-label="Tipo de plano">
                     <option value="">Seleccionar</option>
@@ -1473,6 +1484,16 @@
         </section>
         <footer class="pie">Villa de Merlo · Provincia de San Luis</footer>
     </main>
+    <script>
+        document.querySelectorAll('.editable.libro, .editable.folio, .editable.bajo, .editable.superficie, .editable.destino, .editable.matricula, .editable.unidades').forEach(function (campo) {
+            function ajustarAncho() {
+                var anchoMinimo = campo.classList.contains('unidades') ? 3 : 5;
+                campo.style.width = Math.max(anchoMinimo, campo.value.length + 3) + 'ch';
+            }
+            campo.addEventListener('input', ajustarAncho);
+            ajustarAncho();
+        });
+    </script>
 </body>
 </html>`);
             printWindow.document.close();

@@ -30,11 +30,13 @@ está desactivada por defecto y se habilita desde el control de capas.
 3. Doble clic en **`INSTALAR.bat`** — una sola vez
 4. Doble clic en **`INICIAR.bat`** — cada vez que se quiera usar
 
-`INSTALAR.bat` verifica que esté Node.js, baja los componentes y abre una
-ventana para cargar los datos de conexión —con la contraseña oculta y un botón
-para probar la conexión antes de guardar, parecida al cuadro de conexión de SQL
-Server Management Studio—. Al final prueba la conexión y dice el motivo si algo
-falla.
+`INSTALAR.bat` verifica que esté Node.js y, si falta, ofrece instalar la versión
+LTS oficial de `nodejs.org` tras confirmar y validar la firma digital; después
+baja los componentes y abre una ventana para cargar los datos de conexión —con
+la contraseña oculta y un botón para probar la conexión antes de guardar,
+parecida al cuadro de conexión de SQL Server Management Studio—. Si hacen falta
+permisos de administrador, pregunta antes de abrir el aviso de Windows. Al final
+prueba la conexión y dice el motivo si algo falla.
 
 `INICIAR.bat` levanta el visor y lo abre en el navegador.
 

@@ -8,8 +8,8 @@ REM  Hace todo de punta a punta: Node.js, componentes, configuracion de la
 REM  base, prueba de conexion, y deja el visor instalado como Servicio de
 REM  Windows (arranca solo con la computadora, en el puerto fijo 8002).
 REM
-REM  Por eso necesita permisos de administrador desde el principio: click
-REM  derecho sobre este archivo -> "Ejecutar como administrador".
+REM  Por eso necesita permisos de administrador desde el principio. Si no se
+REM  ejecuto elevado, pregunta si debe reiniciarse y Windows pide confirmacion.
 REM ----------------------------------------------------------------------------
 REM  Sin acentos a proposito: la consola de Windows los muestra mal segun la
 REM  configuracion regional del equipo, y este archivo tiene que leerse bien en
@@ -32,11 +32,30 @@ net session >nul 2>&1
 if errorlevel 1 (
     echo  ESTE PASO NECESITA PERMISOS DE ADMINISTRADOR.
     echo.
-    echo  Cerrar esta ventana y volver a hacer click derecho sobre
-    echo  INSTALAR.bat, eligiendo "Ejecutar como administrador".
+    echo  Windows mostrara el aviso de Control de cuentas de usuario.
+    echo  Para continuar, hay que aceptar el permiso de administrador.
     echo.
-    pause
-    exit /b 1
+    choice /c SN /n /m "Desea reiniciar INSTALAR.bat como administrador? [S/N] "
+    if errorlevel 2 (
+        echo.
+        echo  Instalacion cancelada. No se modifico el sistema.
+        echo  Puede volver a ejecutar INSTALAR.bat como administrador.
+        echo.
+        pause
+        exit /b 1
+    )
+    set "INSTALLER_PATH=%~f0"
+    powershell -NoProfile -Command "try { Start-Process -FilePath $env:INSTALLER_PATH -Verb RunAs; exit 0 } catch { Write-Error $_; exit 1 }"
+    if errorlevel 1 (
+        echo.
+        echo  No se pudo solicitar el permiso de administrador.
+        echo  Vuelva a ejecutar INSTALAR.bat con click derecho y elija
+        echo  "Ejecutar como administrador".
+        echo.
+        pause
+        exit /b 1
+    )
+    exit /b 0
 )
 
 REM --------------------------------------------------------------------------
@@ -46,16 +65,48 @@ echo  [1/5] Verificando Node.js...
 where node >nul 2>nul
 if errorlevel 1 (
     echo.
-    echo  ERROR: Node.js no esta instalado en esta computadora.
+    echo  Node.js no esta instalado en esta computadora.
     echo.
-    echo  El visor lo necesita para funcionar. Se descarga gratis de:
-    echo      https://nodejs.org
+    echo  El visor necesita Node.js LTS para funcionar.
     echo.
-    echo  Bajar la version "LTS", instalarla con las opciones por defecto,
-    echo  y volver a ejecutar este archivo.
+    echo  Se descargara el instalador oficial desde https://nodejs.org
+    echo  y se comprobara su firma digital antes de ejecutarlo.
     echo.
-    pause
-    exit /b 1
+    choice /c SN /n /m "Desea descargar e instalar Node.js LTS ahora? [S/N] "
+    if errorlevel 2 (
+        echo.
+        echo  Instalacion cancelada. No se modifico Node.js.
+        echo  Vuelva a ejecutar INSTALAR.bat cuando quiera continuar.
+        echo.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo  Si Windows muestra un aviso de permisos, revise que el editor
+    echo  sea OpenJS Foundation y elija "Si" para continuar.
+    echo.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "herramientas\instalar-node.ps1"
+    if errorlevel 1 (
+        echo.
+        echo  ERROR: no se pudo instalar Node.js.
+        echo  Revise el mensaje anterior, la conexion a internet y los permisos.
+        echo  Tambien puede instalar la version LTS desde https://nodejs.org
+        echo  y volver a ejecutar INSTALAR.bat.
+        echo.
+        pause
+        exit /b 1
+    )
+    if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+    if defined ProgramFiles(x86) if exist "%ProgramFiles(x86)%\nodejs\node.exe" set "PATH=%ProgramFiles(x86)%\nodejs;%PATH%"
+    where node >nul 2>nul
+    if errorlevel 1 (
+        echo.
+        echo  Node.js se instalo, pero Windows aun no actualizo la ruta PATH.
+        echo  Cierre esta ventana y vuelva a ejecutar INSTALAR.bat.
+        echo.
+        pause
+        exit /b 1
+    )
 )
 for /f "delims=" %%v in ('node --version') do set NODEVER=%%v
 echo        Node.js %NODEVER% encontrado.

@@ -28,13 +28,18 @@ se borra el programa.
 
 ## 3. Instalar (una sola vez)
 
-Entrar a la carpeta, clic derecho sobre `INSTALAR.bat` → **Ejecutar como
-administrador**. (Hace falta: el último paso deja el visor instalado como
-servicio de Windows, y eso requiere permisos de administrador.)
+Entrar a la carpeta y hacer doble clic en `INSTALAR.bat`. Como el último paso
+instala el visor como servicio de Windows, se necesitan permisos de
+administrador. Si no se abrió como administrador, el instalador pregunta si
+debe reiniciarse con esos permisos y Windows muestra el aviso de Control de
+cuentas de usuario. Para continuar, hay que aceptar ese aviso.
 
 Se abre una ventana negra que va contando los pasos. Va a:
 
 1. Verificar que Node.js esté instalado
+   - Si falta, preguntar si se desea descargar e instalar la versión LTS oficial
+     desde `nodejs.org`, comprobar su firma digital y pedir confirmación antes de
+     continuar
 2. Descargar los componentes que el visor necesita
 3. Pedir los datos de conexión a la base
 4. Probar que la conexión funcione
@@ -65,9 +70,16 @@ sistema de catastro. Se cargan una sola vez y quedan guardados.
 
 ### Si dice que falta Node.js
 
-Es un programa gratuito que el visor necesita. Se baja de <https://nodejs.org>,
-se elige la versión que dice **LTS**, y se instala aceptando todas las opciones
-por defecto. Después se vuelve a ejecutar `INSTALAR.bat`.
+El instalador pregunta si se desea instalar Node.js LTS desde el sitio oficial
+<https://nodejs.org>. Si se acepta, descarga el MSI para la arquitectura del
+equipo, comprueba que su firma digital sea válida y que corresponda a OpenJS
+Foundation, y luego lo instala. Si Windows solicita permisos, hay que revisar
+el editor indicado y aceptar para continuar. Si se rechaza la instalación, se
+puede volver a ejecutar `INSTALAR.bat` más tarde.
+
+Si la descarga o la comprobación de la firma falla, no se ejecuta el archivo.
+También se puede instalar Node.js LTS manualmente desde <https://nodejs.org> y
+volver a ejecutar `INSTALAR.bat`.
 
 ### Si dice que no pudo instalar los componentes
 

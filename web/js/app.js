@@ -1248,7 +1248,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Certificado Final de Obra - ${esc(p.NRO_RENTA || p.PADRON || '')}</title>
 <style>
-    @page { size: A4 landscape; margin: 6mm; }
+    @page { size: B5 landscape; margin: 5mm; }
     * { box-sizing: border-box; }
     body {
         margin: 0; padding: 62px 18px 18px; color: #17212b;
@@ -1351,8 +1351,8 @@
     .firmas { display: flex; justify-content: space-between; gap: 18mm; margin: 11mm 0 3mm; }
     .firma { width: 42%; padding-top: 0; border-top: 0; text-align: center; font-size: 12px; line-height: 1.35; }
     .firma::before {
-        content: ""; display: block; width: 50%; margin: 0 auto 3mm;
-        border-top: 1px solid #56636a;
+        content: ""; display: block; width: 50%; height: 16mm; margin: 0 auto 2mm;
+        border-bottom: 1px solid #56636a;
     }
     .pie { border-top: 1px solid #b8c2c5; padding-top: 2mm; text-align: center; font-size: 12px; color: #52646b; }
     @media print {
@@ -1370,7 +1370,8 @@
         .linea-identificacion { margin-bottom: 2mm; padding: 1mm 2mm; }
         .texto { line-height: 1.35; }
         .texto p { margin-bottom: 1.5mm; }
-        .firmas { margin: 5mm 0 2mm; }
+        .firmas { margin: 6mm 0 2mm; break-inside: avoid; page-break-inside: avoid; }
+        .firma::before { height: 18mm; }
         .pie { padding-top: 1mm; }
         .propietarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .editable { background: transparent !important; }
@@ -3147,6 +3148,7 @@ ${p._DEMO ? `
             if (parcelas.length === 0) {
                 throw new Error('No se cargaron los polígonos de parcelas. No se puede generar el informe.');
             }
+            const parcelasInforme = [];
 
             for (const layer of parcelas) {
                 const feature = layer.feature;
@@ -3170,6 +3172,7 @@ ${p._DEMO ? `
                 }
                 const grupo = grupos.get(claveBarrio);
                 grupo.cantidad++;
+                parcelasInforme.push({ layer, padron, barrio: claveBarrio });
                 if (padron && nomenclaturaOriginal) {
                     grupo.parcelas.push({ padron, nomenclatura: nomenclaturaOriginal });
                 }
@@ -3180,6 +3183,7 @@ ${p._DEMO ? `
                 parcelasConPH: gruposPH.size,
                 unidadesPH: unidadesPH.size,
                 sinNomenclatura,
+                parcelas: parcelasInforme,
                 grupos: [...grupos.values()]
                     .filter((grupo) => grupo.cantidad > 0 || grupo.unidadesPH.size > 0)
                     .map((grupo) => ({ ...grupo, unidadesPH: grupo.unidadesPH.size }))
@@ -3187,10 +3191,66 @@ ${p._DEMO ? `
             };
         }
 
+        function crearIndiceEstadosEdificacionInforme(registros) {
+            if (!Array.isArray(registros)) {
+                throw new Error('La respuesta de estados de edificación no tiene un formato válido.');
+            }
+
+            const estados = new Map();
+            const padronesEnConflicto = new Set();
+            for (const registro of registros) {
+                const padron = normalizarPadron(registro.PADRON);
+                const estado = String(registro.BAL_EDIF || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .trim()
+                    .toUpperCase();
+                if (!padron || !['BALDIO', 'EDIFICADO'].includes(estado)) continue;
+                if (estados.has(padron) && estados.get(padron) !== estado) {
+                    padronesEnConflicto.add(padron);
+                    continue;
+                }
+                estados.set(padron, estado);
+            }
+            for (const padron of padronesEnConflicto) estados.delete(padron);
+            return estados;
+        }
+
+        function aplicarEstadosEdificacionInforme(informe, estados) {
+            const grupos = new Map();
+            for (const grupo of informe.grupos) {
+                grupo.parcelasBaldias = 0;
+                grupo.parcelasEdificadas = 0;
+                grupo.parcelasSinClasificar = 0;
+                grupos.set(grupo.nombre, grupo);
+            }
+
+            for (const parcela of informe.parcelas) {
+                const grupo = grupos.get(parcela.barrio);
+                if (!grupo) continue;
+                const estado = estados.get(normalizarPadron(parcela.padron));
+                if (estado === 'BALDIO') {
+                    grupo.parcelasBaldias++;
+                } else if (estado === 'EDIFICADO') {
+                    grupo.parcelasEdificadas++;
+                } else {
+                    grupo.parcelasSinClasificar++;
+                }
+            }
+
+            informe.totalBaldias = informe.grupos.reduce((total, grupo) => total + grupo.parcelasBaldias, 0);
+            informe.totalEdificadas = informe.grupos.reduce((total, grupo) => total + grupo.parcelasEdificadas, 0);
+            informe.totalSinClasificar = informe.grupos.reduce((total, grupo) => total + grupo.parcelasSinClasificar, 0);
+        }
+
         const COLORES_SUPERFICIE_INFORME = [
             '#73c2e4', '#a6d9e8', '#c8e7dc', '#e3edbd', '#fff0a8',
             '#f8d68b', '#f4b77a', '#ed9281', '#dc6b78'
         ];
+        const COLORES_EDIFICACION_INFORME = {
+            BALDIO: '#f4b740',
+            EDIFICADO: '#4f81bd'
+        };
 
         function obtenerRangosSuperficieInforme() {
             const rangos = [];
@@ -3261,7 +3321,7 @@ ${p._DEMO ? `
             ) || null;
         }
 
-        function dibujarMapaInformeParcelario(parcelas, superficies, rangos) {
+        function dibujarMapaInformeParcelario(parcelas, superficies, rangos, clasificacionEdificacion = null) {
             const geometriaEjido = ejidoData.map((feature) => feature.geometry).filter(Boolean);
             const geometriasParcelas = parcelas.map((layer) => layer.feature && layer.feature.geometry).filter(Boolean);
             const geometrias = geometriaEjido.concat(geometriasParcelas);
@@ -3348,22 +3408,35 @@ ${p._DEMO ? `
 
             const cantidades = new Array(rangos.length).fill(0);
             let sinClasificar = 0;
+            let cantidadCoincidente = 0;
+            let cantidadEnBlanco = 0;
             const elementosParcelas = [];
             for (const layer of parcelas) {
                 const feature = layer.feature;
                 const geometry = feature && feature.geometry;
                 if (!geometry) continue;
                 const padron = normalizarPadron((feature.properties || {}).NRO_RENTA || '');
-                const dato = superficies.get(padron);
-                const rango = dato
-                    ? rangos.find((item) => item.indice === dato.grupo) || rangoSuperficieCoincidente(dato.SUP_TER, rangos)
-                    : null;
-                if (!rango) sinClasificar++;
-                else cantidades[rango.indice]++;
-                const color = rango ? COLORES_SUPERFICIE_INFORME[rango.indice] : '#d8dee5';
+                let color;
+                if (clasificacionEdificacion) {
+                    const estado = clasificacionEdificacion.estados.get(padron);
+                    const coincide = estado === clasificacionEdificacion.objetivo;
+                    if (coincide) cantidadCoincidente++;
+                    else cantidadEnBlanco++;
+                    color = coincide ? COLORES_EDIFICACION_INFORME[clasificacionEdificacion.objetivo] : '#fff';
+                } else {
+                    const dato = superficies.get(padron);
+                    const rango = dato
+                        ? rangos.find((item) => item.indice === dato.grupo) || rangoSuperficieCoincidente(dato.SUP_TER, rangos)
+                        : null;
+                    if (!rango) sinClasificar++;
+                    else cantidades[rango.indice]++;
+                    color = rango ? COLORES_SUPERFICIE_INFORME[rango.indice] : '#d8dee5';
+                }
                 const path = pathGeometria(geometry);
                 if (path) {
-                    elementosParcelas.push(`<path d="${path}" fill="${color}" stroke="#fff" stroke-width="0.22" stroke-linejoin="round"/>`);
+                    const colorContorno = clasificacionEdificacion ? '#64748b' : '#fff';
+                    const grosorContorno = clasificacionEdificacion ? '0.55' : '0.22';
+                    elementosParcelas.push(`<path d="${path}" fill="${color}" stroke="${colorContorno}" stroke-width="${grosorContorno}" stroke-linejoin="round"/>`);
                 }
             }
 
@@ -3403,7 +3476,7 @@ ${p._DEMO ? `
             </g>`;
 
             return {
-                svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Plano parcelario clasificado por superficie">
+                svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="${clasificacionEdificacion ? `Plano de ${clasificacionEdificacion.objetivo === 'BALDIO' ? 'parcelas baldías' : 'parcelas edificadas'}` : 'Plano parcelario clasificado por superficie'}">
                     <rect width="${ancho}" height="${alto}" fill="#fff"/>
                     <g>${elementosParcelas.join('')}</g>
                     <g>${elementosEjido.join('')}</g>
@@ -3411,7 +3484,9 @@ ${p._DEMO ? `
                     ${flechaNorte}
                 </svg>`,
                 cantidades,
-                sinClasificar
+                sinClasificar,
+                cantidadCoincidente,
+                cantidadEnBlanco
             };
         }
 
@@ -3526,7 +3601,7 @@ ${p._DEMO ? `
                 </article>`;
         }
 
-        function construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa, distribucionesZonas) {
+        function construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa, distribucionesZonas, mapasEdificacion) {
             const esc = (valor) => String(valor == null ? '' : valor)
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -3552,11 +3627,17 @@ ${p._DEMO ? `
                 <tr>
                     <td>${esc(grupo.nombre)}</td>
                     <td class="numero">${cantidad(grupo.cantidad)}</td>
+                    <td class="numero">${cantidad(grupo.parcelasBaldias)}</td>
+                    <td class="numero">${cantidad(grupo.parcelasEdificadas)}</td>
+                    <td class="numero">${cantidad(grupo.parcelasSinClasificar)}</td>
                     <td class="numero">${cantidad(grupo.unidadesPH)}</td>
                 </tr>`).join('') + `
                 <tr class="total-row">
                     <td>Total general</td>
                     <td class="numero">${cantidad(informe.totalParcelas)}</td>
+                    <td class="numero">${cantidad(informe.totalBaldias)}</td>
+                    <td class="numero">${cantidad(informe.totalEdificadas)}</td>
+                    <td class="numero">${cantidad(informe.totalSinClasificar)}</td>
                     <td class="numero">${cantidad(informe.unidadesPH)}</td>
                 </tr>`;
             const infografiasZonas = distribucionesZonas.map((zona) =>
@@ -3590,6 +3671,30 @@ ${p._DEMO ? `
                     <span>${esc(rango.etiqueta)}</span>
                     <strong>${cantidad(mapa.cantidades[rango.indice])}</strong>
                 </li>`).join('');
+            const seccionMapaEdificacion = (mapaEstado, titulo, estado) => `
+                <section class="mapa-page">
+                    <div class="topline"></div>
+                    <header class="mapa-heading">
+                        <div>
+                            <h1>${titulo}</h1>
+                            <p>Municipalidad de Villa de Merlo · Dirección de Catastro</p>
+                        </div>
+                        <img src="${esc(logo)}" alt="Escudo de Villa de Merlo">
+                    </header>
+                    <div class="mapa-layout">
+                        <div class="mapa-svg-container">${mapaEstado.svg}</div>
+                        <aside class="mapa-leyenda">
+                            <h2>${titulo}</h2>
+                            <ul>
+                                <li><span class="swatch" style="background:${COLORES_EDIFICACION_INFORME[estado]}"></span><span>${estado === 'BALDIO' ? 'Parcelas baldías' : 'Parcelas edificadas'}</span><strong>${cantidad(mapaEstado.cantidadCoincidente)}</strong></li>
+                            </ul>
+                            <ul class="sin-clasificar">
+                                <li><span class="swatch" style="background:#fff"></span><span>Resto de parcelas (en blanco)</span><strong>${cantidad(mapaEstado.cantidadEnBlanco)}</strong></li>
+                            </ul>
+                        </aside>
+                    </div>
+                    <p class="mapa-nota">Se colorean únicamente las parcelas con estado ${estado === 'BALDIO' ? 'baldío' : 'edificado'} en la base municipal. Las demás, incluidas las que no tienen coincidencia o estado reconocido, se dejan en blanco.</p>
+                </section>`;
 
             return `<!DOCTYPE html>
 <html lang="es">
@@ -3612,10 +3717,10 @@ ${p._DEMO ? `
     .title-band h1 { margin: 0; font-size: 18px; line-height: 1.2; }
     .title-band p { margin: 4px 0 0; color: #cbd5e1; font-size: 9px; }
     .generated { margin: 7px 0 12px; color: #64748b; text-align: right; font-size: 8px; }
-    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-    .metric { padding: 10px; border: 1px solid #cbd5e1; background: #f8fafc; }
-    .metric span { display: block; color: #64748b; font-size: 8px; font-weight: 700; text-transform: uppercase; }
-    .metric strong { display: block; margin-top: 3px; color: #0f1b32; font-size: 19px; }
+    .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; margin-bottom: 16px; }
+    .metric { padding: 8px 6px; border: 1px solid #cbd5e1; background: #f8fafc; }
+    .metric span { display: block; color: #64748b; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 3px; color: #0f1b32; font-size: 16px; }
     h2 { margin: 14px 0 7px; padding-bottom: 4px; border-bottom: 1px solid #13a9b8; color: #0f1b32; font-size: 12px; }
     h2.detail-title { break-before: page; page-break-before: always; }
     table { width: 100%; border-collapse: collapse; }
@@ -3680,16 +3785,18 @@ ${p._DEMO ? `
         <p class="generated">Generado: ${esc(generado)}</p>
         <section class="metrics">
             <div class="metric"><span>Total de parcelas</span><strong>${cantidad(informe.totalParcelas)}</strong></div>
+            <div class="metric"><span>Parcelas baldías</span><strong>${cantidad(informe.totalBaldias)}</strong></div>
+            <div class="metric"><span>Parcelas edificadas</span><strong>${cantidad(informe.totalEdificadas)}</strong></div>
             <div class="metric"><span>Parcelas con unidades PH</span><strong>${cantidad(informe.parcelasConPH)}</strong></div>
             <div class="metric"><span>Unidades funcionales PH</span><strong>${cantidad(informe.unidadesPH)}</strong></div>
         </section>
         <h2>1. Distribución de parcelas por barrio</h2>
         <table>
-            <thead><tr><th>Barrio</th><th class="numero">Parcelas en el plano</th><th class="numero">Unidades funcionales PH</th></tr></thead>
+            <thead><tr><th>Barrio</th><th class="numero">Parcelas en el plano</th><th class="numero">Baldías</th><th class="numero">Edificadas</th><th class="numero">Sin clasificar</th><th class="numero">Unidades funcionales PH</th></tr></thead>
             <tbody>${filasResumen}</tbody>
         </table>
         <p class="note">
-            El total de parcelas cuenta los polígonos del plano parcelario; las unidades funcionales PH se informan aparte y no se suman como parcelas adicionales. La asignación por barrio se realiza con la ubicación de los puntos catastrales y los límites de barrios. ${cantidad(informe.sinNomenclatura)} parcelas del plano no tienen nomenclatura registrada; ${cantidad(sinBarrio)} no pudieron ubicarse dentro de un barrio.
+            El total cuenta los polígonos del plano; las unidades PH se informan aparte y no se suman como parcelas. Los estados se consultan en vivo desde BAL_EDIF. Las parcelas sin estado baldío o edificado reconocido se muestran como “Sin clasificar”. La asignación por barrio usa los puntos catastrales y los límites de barrios. ${cantidad(informe.sinNomenclatura)} parcelas no tienen nomenclatura registrada; ${cantidad(sinBarrio)} no pudieron ubicarse dentro de un barrio.
         </p>
         <h2>2. Distribución de superficies por zona</h2>
         <p class="note">Cada gráfico compara la cantidad de parcelas de la zona en los nueve rangos configurados en el panel. La línea naranja punteada señala el grupo que contiene la media aritmética; la línea celeste de puntos marca el grupo de la superficie exacta más frecuente (moda). Ambas estadísticas se calculan con las superficies incluidas en los rangos; en caso de empate de moda se muestra la menor superficie. También se destaca el rango con mayor cantidad de parcelas. Una parcela con frentes en más de una zona se contabiliza en cada zonificación correspondiente.</p>
@@ -3719,6 +3826,8 @@ ${p._DEMO ? `
             </div>
             <p class="mapa-nota">Cada color representa el rango indicado. Las parcelas sin coincidencia de padrón o con superficie fuera de los intervalos se muestran en gris. Fuente: plano parcelario GeoJSON y superficie territorial de la base municipal.</p>
         </section>
+        ${seccionMapaEdificacion(mapasEdificacion.baldias, 'Parcelas baldías', 'BALDIO')}
+        ${seccionMapaEdificacion(mapasEdificacion.edificadas, 'Parcelas edificadas', 'EDIFICADO')}
     </main>
 </body>
 </html>`;
@@ -3871,6 +3980,16 @@ ${p._DEMO ? `
                 }]));
         }
 
+        async function consultarEstadosEdificacionInforme() {
+            const respuesta = await fetch(CONFIG.url('api/informe/estados-edificacion'));
+            if (!respuesta.ok) {
+                const detalle = await respuesta.json().catch(() => ({}));
+                throw new Error(detalle.error || 'No se pudieron consultar los estados de edificación.');
+            }
+
+            return crearIndiceEstadosEdificacionInforme(await respuesta.json());
+        }
+
         async function imprimirPlanoSuperficie() {
             let rangos;
             try {
@@ -3951,10 +4070,11 @@ ${p._DEMO ? `
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                const [respuestaMuestras, superficiesMapa, distribucionesZonas] = await Promise.all([
+                const [respuestaMuestras, superficiesMapa, distribucionesZonas, estadosEdificacion] = await Promise.all([
                     fetch(CONFIG.url('api/informe/superficies'), opcionesPost({ padrones })),
                     consultarSuperficiesParaPlano(rangos),
-                    consultarDistribucionesPorZona(rangos)
+                    consultarDistribucionesPorZona(rangos),
+                    consultarEstadosEdificacionInforme()
                 ]);
                 if (!respuestaMuestras.ok) {
                     const detalle = await respuestaMuestras.json().catch(() => ({}));
@@ -3964,9 +4084,21 @@ ${p._DEMO ? `
                 const superficiesDevueltas = await respuestaMuestras.json();
                 const superficies = new Map((Array.isArray(superficiesDevueltas) ? superficiesDevueltas : [])
                     .map((fila) => [normalizarPadron(fila.PADRON), fila.SUP_TER]));
-                const mapa = dibujarMapaInformeParcelario(obtenerCapasParcelarias(), superficiesMapa, rangos);
+                aplicarEstadosEdificacionInforme(informe, estadosEdificacion);
+                const capasParcelarias = informe.parcelas.map((parcela) => parcela.layer);
+                const mapa = dibujarMapaInformeParcelario(capasParcelarias, superficiesMapa, rangos);
+                const mapasEdificacion = {
+                    baldias: dibujarMapaInformeParcelario(capasParcelarias, new Map(), rangos, {
+                        estados: estadosEdificacion,
+                        objetivo: 'BALDIO'
+                    }),
+                    edificadas: dibujarMapaInformeParcelario(capasParcelarias, new Map(), rangos, {
+                        estados: estadosEdificacion,
+                        objetivo: 'EDIFICADO'
+                    })
+                };
                 ventana.document.open();
-                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa, distribucionesZonas));
+                ventana.document.write(construirHtmlInformeParcelario(informe, muestras, superficies, rangos, mapa, distribucionesZonas, mapasEdificacion));
                 ventana.document.close();
                 mostrarEstadoInforme(`Informe listo: ${informe.totalParcelas} parcelas y ${informe.grupos.length} grupos por barrio.`);
             } catch (error) {

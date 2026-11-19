@@ -31,6 +31,7 @@
 //   /api/filtrar      búsqueda por superficie / zona / barrio (los filtros)
 //   /api/opciones     las listas de zonas y barrios que existen en la base
 //   /api/comercios/*  rubros y resultados de comercios del catastro
+//   /api/informe/*    datos en vivo para el informe parcelario
 //   /api/superficie   /api/edificacion   búsquedas sueltas más viejas
 // ============================================================================
 
@@ -1203,6 +1204,32 @@ app.post('/api/informe/mapa-superficies', express.json({ limit: '8kb' }), async 
     } catch (err) {
         console.error('Error al consultar superficies para el plano del informe parcelario:', err);
         res.status(500).json({ error: 'No se pudieron consultar las superficies para el plano.' });
+    }
+});
+
+app.get('/api/informe/estados-edificacion', async (req, res) => {
+    const activePool = getPool();
+    if (!activePool) {
+        return res.status(503).json({ error: 'La base municipal no está disponible para consultar estados de edificación.' });
+    }
+
+    try {
+        // El mapa necesita clasificar todas las geometrías; no aplicar MAX_ROWS.
+        const resultado = await activePool.request().query(`
+            SELECT DISTINCT
+                LTRIM(RTRIM(NRO_RENTA)) AS PADRON,
+                LTRIM(RTRIM(BAL_EDIF)) AS BAL_EDIF
+            FROM PROGRAM.dbo.VI_GIS_CATASTRO_PADRON
+            WHERE ACTIVO = 1
+              AND NRO_RENTA IS NOT NULL
+              AND LTRIM(RTRIM(NRO_RENTA)) <> ''
+              AND BAL_EDIF IS NOT NULL
+              AND LTRIM(RTRIM(BAL_EDIF)) <> ''
+        `);
+        res.json(resultado.recordset);
+    } catch (err) {
+        console.error('Error al consultar estados de edificación para el informe parcelario:', err);
+        res.status(500).json({ error: 'No se pudieron consultar los estados de edificación del informe.' });
     }
 });
 

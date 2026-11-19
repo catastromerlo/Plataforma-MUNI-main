@@ -172,7 +172,7 @@ explica qué hace.
 | Propiedad horizontal (elegir sub-unidad)    | `web/js/app.js` → `mostrarModalPH()`, `seleccionarPH()`, `procesarParcela()` |
 | Los **filtros de parcelas** (superficie, zona, barrio) | `web/js/app.js` → `aplicarFiltros()` + `server.js` → `/api/filtrar` |
 | Buscar **comercios por rubro** | `web/js/app.js` → `buscarComercios()` + `server.js` → `/api/comercios` |
-| Generar informe parcelario y plano por superficie | `web/js/app.js` → `generarInformeParcelario()` + `server.js` → `/api/informe/superficies`, `/api/informe/distribucion-zonas` y `/api/informe/mapa-superficies` |
+| Generar informe parcelario, conteos por estado y planos | `web/js/app.js` → `generarInformeParcelario()` + `server.js` → `/api/informe/estados-edificacion`, `/api/informe/superficies`, `/api/informe/distribucion-zonas` y `/api/informe/mapa-superficies` |
 | Qué datos trae la ficha de una parcela      | `servidor/server.js` → `/api/catastro`             |
 | **Cargar un plano nuevo** con más parcelas  | `web/js/app.js` → const `PLANO`, y `docs/actualizar-el-plano.md` |
 | A qué base de datos se conecta              | `servidor/.env` (se edita con `CONFIGURAR.bat`)    |

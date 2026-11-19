@@ -52,6 +52,7 @@ const CAPACIDADES = [
     ['Búsqueda de comercios por rubro', 'buscarComercios'],
     ['Pintado de comercios por nomenclatura', 'pintarComerciosEnMapa'],
     ['Generación de informe parcelario por barrio', 'generarInformeParcelario'],
+    ['Conteos y planos parcelarios por estado de edificación', 'crearIndiceEstadosEdificacionInforme'],
     ['Infografías zonales con nueve rangos, media y moda de superficie', 'dibujarInfografiaZona'],
     ['Plano parcelario clasificado por superficie', 'dibujarMapaInformeParcelario'],
     ['Impresión independiente del plano ISO FULL 4A0', 'imprimirPlanoSuperficie'],
@@ -78,7 +79,8 @@ const ENDPOINTS = [
     'api/comercios',
     'api/informe/superficies',
     'api/informe/distribucion-zonas',
-    'api/informe/mapa-superficies'
+    'api/informe/mapa-superficies',
+    'api/informe/estados-edificacion'
 ];
 
 function leer(ruta) {
